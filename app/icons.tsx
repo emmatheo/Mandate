@@ -22,20 +22,22 @@ const base = (size: number) => ({
 });
 
 export function Logo({ size = 30 }: P) {
+  const id = `mg${size}`;
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden className="icon">
+      <defs>
+        <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#a78bfa" />
+          <stop offset="1" stopColor="#6d28d9" />
+        </linearGradient>
+      </defs>
+      <path d="M16 1.9 28.6 8.9v14.2L16 30.1 3.4 23.1V8.9L16 1.9Z" fill={`url(#${id})`} />
       <path
-        d="M16 2.6 27.5 9v14L16 29.4 4.5 23V9L16 2.6Z"
+        d="M10.6 21.4v-10l5.4 4.8 5.4-4.8v10"
         fill="none"
-        stroke="var(--green)"
-        strokeWidth="1.9"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M11 20.5v-9l5 4.4 5-4.4v9"
-        fill="none"
-        stroke="var(--green)"
-        strokeWidth="1.9"
+        stroke="#fff"
+        strokeOpacity="0.95"
+        strokeWidth="2.1"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -207,6 +209,74 @@ export function Send(p: P) {
     <svg {...base(p.size ?? 15)}>
       <path d="M21 3 10.5 13.5" />
       <path d="M21 3l-6.8 18-3.7-7.5L3 9.8 21 3Z" />
+    </svg>
+  );
+}
+
+export function Wallet2(p: P) {
+  return (
+    <svg {...base(p.size ?? 15)}>
+      <path d="M19 7V6a2 2 0 0 0-2-2H5.5A2.5 2.5 0 0 0 3 6.5v11A2.5 2.5 0 0 0 5.5 20H19a2 2 0 0 0 2-2v-1" />
+      <path d="M21 10.5h-4.5a2.25 2.25 0 0 0 0 4.5H21v-4.5Z" />
+    </svg>
+  );
+}
+
+export function Clock(p: P) {
+  return (
+    <svg {...base(p.size ?? 15)}>
+      <circle cx="12" cy="12" r="8.6" />
+      <path d="M12 7.4V12l3 1.8" />
+    </svg>
+  );
+}
+
+export function Coins(p: P) {
+  return (
+    <svg {...base(p.size ?? 15)}>
+      <ellipse cx="12" cy="6.6" rx="7.2" ry="3.1" />
+      <path d="M4.8 6.6v4.4c0 1.7 3.2 3.1 7.2 3.1s7.2-1.4 7.2-3.1V6.6" />
+      <path d="M4.8 11v4.4c0 1.7 3.2 3.1 7.2 3.1s7.2-1.4 7.2-3.1V11" />
+    </svg>
+  );
+}
+
+export function Play(p: P) {
+  return (
+    <svg {...base(p.size ?? 15)}>
+      <circle cx="12" cy="12" r="8.8" />
+      <path d="M10.2 8.6 15.6 12l-5.4 3.4V8.6Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function Dots(p: P) {
+  return (
+    <svg {...base(p.size ?? 16)}>
+      <circle cx="6" cy="12" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="18" cy="12" r="1.3" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function Alert(p: P) {
+  return (
+    <svg {...base(p.size ?? 15)}>
+      <path d="M12 4.6 2.8 20h18.4L12 4.6Z" />
+      <path d="M12 10.4v4" />
+      <circle cx="12" cy="17.2" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function KeyOff(p: P) {
+  return (
+    <svg {...base(p.size ?? 15)}>
+      <circle cx="8.2" cy="15.8" r="3.4" />
+      <path d="m10.7 13.3 7.4-7.4" />
+      <path d="m15.4 8.6 2 2" />
+      <path d="m18 6 2.2 2.2" />
     </svg>
   );
 }

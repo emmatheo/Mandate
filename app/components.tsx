@@ -132,9 +132,19 @@ export function FeedItem({ entry, label }: { entry: ActivityEntry; label: string
           <span className="feed-time">{relativeTime(entry.at)}</span>
         </div>
         <div className="feed-meta">
-          {label} · {formatToken(entry.amount)} → {truncateAddress(entry.recipient, 8, 4)}
+          {label} · {truncateAddress(entry.recipient, 8, 4)}
         </div>
-        {!executed && <div className="feed-meta" style={{ color: 'var(--red)' }}>{entry.message}</div>}
+        {/* A refused payment moved nothing, so it carries no minus sign. */}
+        <div className={`feed-amount ${executed ? 'feed-amount-ok' : 'feed-amount-bad'}`}>
+          {executed ? '−' : ''}
+          {formatToken(entry.amount)}
+          {!executed && ' · blocked'}
+        </div>
+        {!executed && (
+          <div className="feed-meta" style={{ color: 'var(--red)' }}>
+            {entry.message}
+          </div>
+        )}
       </div>
     </div>
   );

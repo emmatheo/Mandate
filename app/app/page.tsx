@@ -11,7 +11,7 @@ import {
   truncateAddress,
 } from '../../lib/encoding';
 import { deriveAgentPublicKey } from '../../lib/mandate';
-import type { MandateSpec, PeriodKind, StoredMandate } from '../../lib/types';
+import type { PeriodKind, StoredMandate } from '../../lib/types';
 import {
   DisclosureItem,
   EmptyState,
@@ -28,17 +28,16 @@ import {
   Download,
   Eye,
   Grid,
-  Logo,
   Lock,
+  Logo,
   Plus,
   Pulse,
-  Refresh,
   Send,
   Shield,
   Users,
 } from '../icons';
 import type { ActionResult } from '../store';
-import { LOCAL_NETWORK_ID, useMandateApp } from '../store';
+import { useMandateApp, LOCAL_NETWORK_ID } from '../store';
 
 type Section = 'overview' | 'mandates' | 'agents' | 'activity' | 'disclosure';
 type App = ReturnType<typeof useMandateApp>;
@@ -53,6 +52,14 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: 'disclosure', label: 'Disclosure', icon: <Eye /> },
 ];
 
+const SECTION_TITLES: Record<Section, { title: string; subtitle: string }> = {
+  overview: { title: 'Dashboard', subtitle: 'Monitor and manage your mandates with confidence.' },
+  mandates: { title: 'Mandates', subtitle: 'Define the rules, fund the escrow, and see exactly what becomes public.' },
+  agents: { title: 'Agents', subtitle: 'Each mandate is bound to one agent identity. Only that agent can act under it.' },
+  activity: { title: 'Activity', subtitle: 'Every action proposed under your mandates, and the rule that decided it.' },
+  disclosure: { title: 'Selective disclosure', subtitle: 'Prove one fact to a third party without opening anything else.' },
+};
+
 export default function Dashboard() {
   const app = useMandateApp();
   const [section, setSection] = useState<Section>('overview');
@@ -61,9 +68,10 @@ export default function Dashboard() {
     <div className="db">
       <aside className="db-side">
         <Link href="/" className="db-brand">
-          <Logo size={26} />
-          <span>Mandate</span>
+          <Logo size={28} />
+          <span className="db-brand-name">MANDATE</span>
         </Link>
+        <div className="db-brand-tag">Secure. Controlled. Verifiable.</div>
 
         <nav className="db-nav">
           {NAV.map((item) => (
@@ -79,20 +87,30 @@ export default function Dashboard() {
           ))}
         </nav>
 
-        <div className="db-side-foot">
-          <Lock size={16} />
-          <div>
-            Rules stay on this device.
-            <br />
-            You control access.
+        <div className="db-side-foot" title="Mandate rules and secrets never leave this browser">
+          <span className="tile tile-sm" style={{ width: 30, height: 30 }}>
+            <Shield size={15} />
+          </span>
+          <div className="txt">
+            <div className="lbl">Keys stay local</div>
+            <div className="sub">
+              <span className="dot" style={{ color: 'var(--green)' }} />
+              Never leave this device
+            </div>
           </div>
         </div>
       </aside>
 
       <div className="db-main">
         <header className="db-top">
-          <SessionChip />
-          <NetworkChip />
+          <div>
+            <h1>{SECTION_TITLES[section].title}</h1>
+            <p>{SECTION_TITLES[section].subtitle}</p>
+          </div>
+          <div className="db-chips">
+            <SessionChip />
+            <NetworkChip />
+          </div>
         </header>
 
         <div className="db-body">
@@ -115,7 +133,7 @@ export default function Dashboard() {
  * Identifies the current session.
  *
  * With no wallet connected there is no address to show, and inventing one would
- * be the exact thing this product exists to make impossible. It says so instead.
+ * be exactly the thing this product exists to make impossible. It says so instead.
  */
 function SessionChip() {
   return (
@@ -132,7 +150,7 @@ function NetworkChip() {
     <span className="db-chip">
       <span
         className="dot"
-        style={{ color: configured ? 'var(--violet)' : 'var(--amber)' }}
+        style={{ color: configured ? 'var(--green)' : 'var(--amber)' }}
         aria-hidden
       />
       {configured ? `Midnight ${configured}` : 'In-memory ledger'}
@@ -160,18 +178,14 @@ function Overview({ app, onGo }: { app: App; onGo: (s: Section) => void }) {
 
   return (
     <>
-      <div className="db-head">
-        <h1>Active mandates</h1>
-        <p>Monitor and control the spending authority you have granted.</p>
-      </div>
-
       {!process.env.NEXT_PUBLIC_NETWORK_ID && (
-        <div style={{ marginBottom: 22 }}>
+        <div style={{ marginBottom: 24 }}>
           <Notice tone="warn">
             <div>
               <strong>This session runs against an in-memory ledger.</strong> The circuits are the
-              real compiled ones, so every authorization and refusal is a genuine zero-knowledge
-              outcome — but nothing is settled on a chain, and the ledger resets when you reload.
+              real compiled ones, so every authorization and refusal below is a genuine
+              zero-knowledge outcome — but nothing is settled on a chain, and the ledger resets
+              when you reload.
             </div>
           </Notice>
         </div>
@@ -179,6 +193,20 @@ function Overview({ app, onGo }: { app: App; onGo: (s: Section) => void }) {
 
       <div className="db-cols">
         <div>
+          <div className="db-sec-head">
+            <div>
+              <h2>
+                Active mandates
+                {mandates.length > 0 && <span className="db-count">{mandates.length}</span>}
+              </h2>
+              <p>Track balances, limits and the agent authorized on each.</p>
+            </div>
+            <button className="btn btn-primary btn-sm" onClick={() => onGo('mandates')}>
+              <Plus size={15} />
+              New mandate
+            </button>
+          </div>
+
           {mandates.length === 0 ? (
             <EmptyState
               title="No mandates yet"
@@ -213,30 +241,28 @@ function Overview({ app, onGo }: { app: App; onGo: (s: Section) => void }) {
                 <Pulse size={16} />
                 Recent agent activity
               </div>
-              <p className="card-sub">Every action an agent proposed, and what happened to it.</p>
+              <p className="card-sub">Real-time activity from authorized agents.</p>
             </div>
-            <Refresh size={15} />
+            {/* No refresh control here: the feed updates as actions happen, and
+                an icon that looks clickable but is not would be a lie. */}
+            {app.activity.length > 0 && <Pill tone="ok">Live</Pill>}
           </div>
 
           {app.activity.length === 0 ? (
-            <p className="hint" style={{ padding: '18px 0' }}>
+            <p className="hint" style={{ padding: '20px 0' }}>
               Nothing yet. Actions appear here the moment an agent proposes one.
             </p>
           ) : (
             <>
               <div className="feed">
                 {app.activity.slice(0, 6).map((entry) => (
-                  <FeedItem
-                    key={entry.id}
-                    entry={entry}
-                    label={labelFor(app, entry.mandateId)}
-                  />
+                  <FeedItem key={entry.id} entry={entry} label={labelFor(app, entry.mandateId)} />
                 ))}
               </div>
               {app.activity.length > 6 && (
                 <button
                   className="btn btn-sm btn-block"
-                  style={{ marginTop: 14 }}
+                  style={{ marginTop: 16 }}
                   onClick={() => onGo('activity')}
                 >
                   View all activity
@@ -245,6 +271,24 @@ function Overview({ app, onGo }: { app: App; onGo: (s: Section) => void }) {
             </>
           )}
         </div>
+      </div>
+
+      <div className="db-strip">
+        <div className="db-strip-main">
+          <span className="tile">
+            <Shield size={20} />
+          </span>
+          <div>
+            <h3>Your mandates are enforced by cryptography, not by policy.</h3>
+            <p>
+              Rules never leave this device · Every payment verified by zero-knowledge proof ·
+              Revocable at any time
+            </p>
+          </div>
+        </div>
+        <Link href="/#security" className="btn btn-sm">
+          How this is secured
+        </Link>
       </div>
     </>
   );
@@ -263,45 +307,63 @@ function MandateCard({ app, mandate }: { app: App; mandate: StoredMandate }) {
 
   if (!record) return null;
 
+  // Progress is against the deposit, which is the money actually at stake.
+  const used = record.deposited > 0n ? Number((record.spent * 100n) / record.deposited) : 0;
+
   return (
-    <div className="card">
-      <div className="card-head">
-        <div className="card-title">
-          <span style={{ color: 'var(--violet)', display: 'inline-flex' }}>
-            <Shield size={17} />
-          </span>
-          {mandate.spec.label}
-        </div>
+    <div className="card m-card">
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <span className="tile">
+          <Shield size={20} />
+        </span>
+        {record.revoked ? <Pill tone="bad">Revoked</Pill> : <Pill tone="ok">Active</Pill>}
       </div>
 
-      <div className="mandate-line">
-        <span>Remaining balance</span>
-        <span>{formatToken(record.escrow)}</span>
+      <div className="m-name">{mandate.spec.label}</div>
+
+      <div className="m-amount">
+        {formatAmount(record.escrow)}
+        <span className="m-amount-unit">tNIGHT</span>
       </div>
+      <div className="m-amount-label">Remaining balance</div>
+      <div className="m-amount-of">of {formatToken(record.deposited)} deposited</div>
+
+      <div className="meter" role="presentation">
+        <div className="meter-fill" style={{ width: `${Math.min(100, used)}%` }} />
+      </div>
+
       {/*
-        The spend limit is a private rule. It is safe to show here because this
+        The spend limit is a private rule. Showing it here is safe because this
         screen renders from local state on the owner's own device — it is never
         read back from the chain, where it does not exist.
       */}
-      <div className="mandate-line">
+      <div className="m-row">
         <span>Max spend limit</span>
         <span>{formatToken(mandate.spec.maxTotalSpend)}</span>
       </div>
-      <div className="mandate-line">
-        <span>Authorized agent</span>
-        <span className="agent-tag">
-          <span className="agent-avatar" aria-hidden />
-          <Hash value={mandate.spec.agentPublicKey} chars={8} />
-        </span>
-      </div>
-      <div className="mandate-line">
-        <span>Status</span>
-        <span>
-          {record.revoked ? <Pill tone="bad">Revoked</Pill> : <Pill tone="ok">Active</Pill>}
-        </span>
+      <div className="m-row">
+        <span>Released so far</span>
+        <span>{formatToken(record.spent)}</span>
       </div>
 
-      <div className="mandate-actions">
+      <div className="divider" style={{ margin: '14px 0' }} />
+
+      <div className="label" style={{ fontSize: 12 }}>
+        Authorized agent
+      </div>
+      <div className="m-agent">
+        <span className="m-agent-avatar" aria-hidden />
+        <div>
+          <div className="m-agent-key">{truncateAddress(mandate.spec.agentPublicKey, 8, 4)}</div>
+          <div className="m-agent-role">
+            {record.actionCount === 0n
+              ? 'No actions yet'
+              : `${record.actionCount} action${record.actionCount === 1n ? '' : 's'} authorized`}
+          </div>
+        </div>
+      </div>
+
+      <div className="m-actions">
         <button
           className="btn btn-danger btn-sm"
           disabled={record.revoked}
@@ -315,10 +377,10 @@ function MandateCard({ app, mandate }: { app: App; mandate: StoredMandate }) {
           }}
         >
           <Ban size={14} />
-          {confirming ? 'Confirm revoke' : 'Revoke'}
+          {confirming ? 'Confirm' : 'Revoke'}
         </button>
         <button
-          className="btn btn-sm"
+          className="btn btn-primary btn-sm"
           disabled={!record.revoked || record.escrow === 0n}
           title={
             record.revoked
@@ -338,7 +400,7 @@ function MandateCard({ app, mandate }: { app: App; mandate: StoredMandate }) {
         would be the wrong kind of convenience.
       */}
       {askReclaim && record.revoked && (
-        <div style={{ marginTop: 14 }}>
+        <div style={{ marginTop: 16 }}>
           <Field label="Reclaim to" hint="Bound into the proof, so nobody can redirect the funds.">
             <input
               type="text"
@@ -348,7 +410,7 @@ function MandateCard({ app, mandate }: { app: App; mandate: StoredMandate }) {
               onChange={(e) => setReclaimTo(e.target.value.trim())}
             />
           </Field>
-          <div className="btn-row" style={{ marginTop: 10 }}>
+          <div className="btn-row" style={{ marginTop: 12 }}>
             <button
               className="btn btn-sm btn-primary"
               disabled={reclaimTo.length === 0}
@@ -367,7 +429,7 @@ function MandateCard({ app, mandate }: { app: App; mandate: StoredMandate }) {
       )}
 
       {note && (
-        <div style={{ marginTop: 14 }}>
+        <div style={{ marginTop: 16 }}>
           <Notice tone={note.ok ? 'ok' : 'bad'}>{note.message}</Notice>
         </div>
       )}
@@ -381,16 +443,10 @@ function MandateCard({ app, mandate }: { app: App; mandate: StoredMandate }) {
 
 function Mandates({ app }: { app: App }) {
   return (
-    <>
-      <div className="db-head">
-        <h1>Mandates</h1>
-        <p>Define the rules, fund the escrow, and see exactly what becomes public.</p>
-      </div>
-      <div className="db-cols">
-        <CreateForm app={app} />
-        <MandateDetails app={app} />
-      </div>
-    </>
+    <div className="db-cols">
+      <CreateForm app={app} />
+      <MandateDetails app={app} />
+    </div>
   );
 }
 
@@ -459,7 +515,9 @@ function CreateForm({ app }: { app: App }) {
       <div className="card-head">
         <div>
           <div className="card-title">
-            <Plus size={16} />
+            <span className="tile tile-sm">
+              <Plus size={16} />
+            </span>
             New mandate
           </div>
           <p className="card-sub">
@@ -566,26 +624,26 @@ function CreateForm({ app }: { app: App }) {
           required
         />
       </Field>
-      <div className="btn-row" style={{ marginTop: 10 }}>
+      <div className="btn-row" style={{ marginTop: 12, alignItems: 'center' }}>
         <button type="button" className="btn btn-sm" onClick={() => setAgentSecret(randomHex32())}>
           Generate agent key
         </button>
         {agentPublicKey && (
-          <span className="hint" style={{ alignSelf: 'center' }}>
+          <span className="hint">
             Public key <Hash value={agentPublicKey} chars={10} />
           </span>
         )}
       </div>
 
       {result && (
-        <div style={{ marginTop: 18 }}>
+        <div style={{ marginTop: 20 }}>
           <Notice tone={result.ok ? 'ok' : 'bad'}>
             <span className={result.ok ? 'mono' : undefined}>{result.message}</span>
           </Notice>
         </div>
       )}
 
-      <div className="btn-row" style={{ marginTop: 18 }}>
+      <div className="btn-row" style={{ marginTop: 20 }}>
         <button type="submit" className="btn btn-primary">
           Create and fund escrow
         </button>
@@ -600,7 +658,9 @@ function MandateDetails({ app }: { app: App }) {
       <div className="card">
         <div className="card-head">
           <div className="card-title">
-            <Lock size={16} />
+            <span className="tile tile-sm">
+              <Lock size={16} />
+            </span>
             Public vs private
           </div>
         </div>
@@ -615,24 +675,24 @@ function MandateDetails({ app }: { app: App }) {
   return (
     <div className="card">
       <div className="card-head">
-        <div>
-          <div className="card-title">
+        <div className="card-title">
+          <span className="tile tile-sm">
             <Lock size={16} />
-            What is on chain, and what is not
-          </div>
+          </span>
+          What is on chain, and what is not
         </div>
       </div>
 
       {app.mandates.map((mandate) => {
         const record = app.records[mandate.id];
         return (
-          <div key={mandate.id} style={{ marginBottom: 22 }}>
-            <div style={{ fontWeight: 560, marginBottom: 10 }}>{mandate.spec.label}</div>
+          <div key={mandate.id} style={{ marginBottom: 24 }}>
+            <div style={{ fontWeight: 580, marginBottom: 12 }}>{mandate.spec.label}</div>
 
-            <div className="label" style={{ marginBottom: 6 }}>
+            <div className="label" style={{ marginBottom: 7 }}>
               Public
             </div>
-            <dl className="kv" style={{ marginBottom: 14 }}>
+            <dl className="kv" style={{ marginBottom: 16 }}>
               <dt>Commitment</dt>
               <dd>
                 <Hash value={mandate.commitment} chars={20} />
@@ -645,7 +705,7 @@ function MandateDetails({ app }: { app: App }) {
               <dd>{record ? formatToken(record.deposited) : '—'}</dd>
             </dl>
 
-            <div className="label" style={{ marginBottom: 6 }}>
+            <div className="label" style={{ marginBottom: 7 }}>
               Private — this browser only
             </div>
             <dl className="kv">
@@ -702,119 +762,122 @@ function Agents({ app }: { app: App }) {
     }
   }
 
+  if (app.mandates.length === 0) {
+    return (
+      <EmptyState
+        title="No agents authorized"
+        body="An agent becomes authorized when you bind its public key to a mandate. Create a mandate to authorize one."
+      />
+    );
+  }
+
   return (
-    <>
-      <div className="db-head">
-        <h1>Agents</h1>
-        <p>Each mandate is bound to one agent identity. Only that agent can act under it.</p>
-      </div>
-
-      {app.mandates.length === 0 ? (
-        <EmptyState
-          title="No agents authorized"
-          body="An agent becomes authorized when you bind its public key to a mandate. Create a mandate to authorize one."
-        />
-      ) : (
-        <div className="db-cols">
-          <form className="card" onSubmit={propose}>
-            <div className="card-head">
-              <div>
-                <div className="card-title">
-                  <Send size={16} />
-                  Propose an action
-                </div>
-                <p className="card-sub">
-                  The agent checks the action against the rules it holds, then proves compliance in
-                  zero knowledge. Break a rule and the proof is unsatisfiable — the funds cannot
-                  move, whatever the agent intends.
-                </p>
-              </div>
+    <div className="db-cols">
+      <form className="card" onSubmit={propose}>
+        <div className="card-head">
+          <div>
+            <div className="card-title">
+              <span className="tile tile-sm">
+                <Send size={16} />
+              </span>
+              Propose an action
             </div>
-
-            <div className="form-grid">
-              <Field label="Mandate">
-                <select
-                  value={selected?.id ?? ''}
-                  onChange={(e) => setMandateId(e.target.value)}
-                >
-                  {app.mandates.map((mandate) => (
-                    <option key={mandate.id} value={mandate.id}>
-                      {mandate.spec.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Amount (tNIGHT)">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={amount}
-                  placeholder="0.00"
-                  onChange={(e) => setAmount(e.target.value)}
-                  required
-                />
-              </Field>
-              <Field label="Recipient" hint="Checked against the private allow-list in-circuit.">
-                <input
-                  type="text"
-                  className="mono"
-                  value={recipient}
-                  placeholder="Recipient address"
-                  onChange={(e) => setRecipient(e.target.value)}
-                  required
-                />
-              </Field>
-              <Field label="Reference" hint="Local only. Never leaves this browser.">
-                <input
-                  type="text"
-                  value={memo}
-                  placeholder="e.g. Invoice #1041"
-                  onChange={(e) => setMemo(e.target.value)}
-                />
-              </Field>
-            </div>
-
-            <div className="btn-row" style={{ marginTop: 18 }}>
-              <button type="submit" className="btn btn-primary" disabled={busy}>
-                {busy ? 'Proving…' : 'Prove and submit'}
-              </button>
-            </div>
-
-            {last && (
-              <div style={{ marginTop: 20 }}>
-                <Notice tone={last.ok ? 'ok' : 'bad'}>{last.message}</Notice>
-                {last.preCheck && (
-                  <div style={{ marginTop: 14 }}>
-                    <RuleReport result={last.preCheck} />
-                  </div>
-                )}
-              </div>
-            )}
-          </form>
-
-          <div className="card">
-            <div className="card-head">
-              <div>
-                <div className="card-title">
-                  <Users size={16} />
-                  Authorized agents
-                </div>
-                <p className="card-sub">One agent per mandate, bound at creation.</p>
-              </div>
-            </div>
-            {app.mandates.map((mandate) => (
-              <div className="mandate-line" key={mandate.id}>
-                <span className="agent-tag">
-                  <span className="agent-avatar" aria-hidden />
-                  <Hash value={mandate.spec.agentPublicKey} chars={10} />
-                </span>
-                <span>{mandate.spec.label}</span>
-              </div>
-            ))}
+            <p className="card-sub">
+              The agent checks the action against the rules it holds, then proves compliance in
+              zero knowledge. Break a rule and the proof is unsatisfiable — the funds cannot move,
+              whatever the agent intends.
+            </p>
           </div>
         </div>
-      )}
-    </>
+
+        <div className="form-grid">
+          <Field label="Mandate">
+            <select value={selected?.id ?? ''} onChange={(e) => setMandateId(e.target.value)}>
+              {app.mandates.map((mandate) => (
+                <option key={mandate.id} value={mandate.id}>
+                  {mandate.spec.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Amount (tNIGHT)">
+            <input
+              type="text"
+              inputMode="decimal"
+              value={amount}
+              placeholder="0.00"
+              onChange={(e) => setAmount(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Recipient" hint="Checked against the private allow-list in-circuit.">
+            <input
+              type="text"
+              className="mono"
+              value={recipient}
+              placeholder="Recipient address"
+              onChange={(e) => setRecipient(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Reference" hint="Local only. Never leaves this browser.">
+            <input
+              type="text"
+              value={memo}
+              placeholder="e.g. Invoice #1041"
+              onChange={(e) => setMemo(e.target.value)}
+            />
+          </Field>
+        </div>
+
+        <div className="btn-row" style={{ marginTop: 20 }}>
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            {busy ? 'Proving…' : 'Prove and submit'}
+          </button>
+        </div>
+
+        {last && (
+          <div style={{ marginTop: 22 }}>
+            <Notice tone={last.ok ? 'ok' : 'bad'}>{last.message}</Notice>
+            {last.preCheck && (
+              <div style={{ marginTop: 16 }}>
+                <RuleReport result={last.preCheck} />
+              </div>
+            )}
+          </div>
+        )}
+      </form>
+
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <div className="card-title">
+              <span className="tile tile-sm">
+                <Users size={16} />
+              </span>
+              Authorized agents
+            </div>
+            <p className="card-sub">One agent per mandate, bound at creation.</p>
+          </div>
+        </div>
+        {app.mandates.map((mandate) => (
+          <div className="m-agent" key={mandate.id} style={{ padding: '10px 0' }}>
+            <span className="m-agent-avatar" aria-hidden />
+            <div style={{ flex: 1 }}>
+              <div className="m-agent-key">
+                {truncateAddress(mandate.spec.agentPublicKey, 10, 4)}
+              </div>
+              <div className="m-agent-role">{mandate.spec.label}</div>
+            </div>
+            {app.records[mandate.id]?.revoked ? (
+              <Pill tone="bad">Revoked</Pill>
+            ) : (
+              <Pill tone="ok">Active</Pill>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -823,53 +886,55 @@ function Agents({ app }: { app: App }) {
 // ---------------------------------------------------------------------------
 
 function Activity({ app }: { app: App }) {
-  return (
-    <>
-      <div className="db-head">
-        <h1>Activity</h1>
-        <p>Every action proposed under your mandates, and the rule that decided it.</p>
-      </div>
+  if (app.activity.length === 0) {
+    return (
+      <EmptyState
+        title="No activity yet"
+        body="Actions appear here as soon as an agent proposes one — whether it was authorized or refused."
+      />
+    );
+  }
 
-      {app.activity.length === 0 ? (
-        <EmptyState
-          title="No activity yet"
-          body="Actions appear here as soon as an agent proposes one — whether it was authorized or refused."
-        />
-      ) : (
-        <div className="card">
-          <div className="feed">
-            {app.activity.map((entry) => (
-              <div className="feed-item" key={entry.id}>
-                <span
-                  className={`feed-icon ${entry.outcome === 'executed' ? 'feed-ok' : 'feed-bad'}`}
-                >
-                  {entry.outcome === 'executed' ? '✓' : '✕'}
+  return (
+    <div className="card">
+      <div className="feed">
+        {app.activity.map((entry) => (
+          <div className="feed-item" key={entry.id}>
+            <span
+              className={`feed-icon ${entry.outcome === 'executed' ? 'feed-ok' : 'feed-bad'}`}
+            >
+              {entry.outcome === 'executed' ? '✓' : '✕'}
+            </span>
+            <div className="feed-main">
+              <div className="feed-title">
+                <span>
+                  {entry.outcome === 'executed' ? 'Payment executed' : 'Payment refused'}
                 </span>
-                <div className="feed-main">
-                  <div className="feed-title">
-                    <span>
-                      {formatToken(entry.amount)} → {truncateAddress(entry.recipient, 10, 4)}
-                    </span>
-                    <span className="feed-time">{relativeTime(entry.at)}</span>
-                  </div>
-                  <div className="feed-meta">
-                    {labelFor(app, entry.mandateId)}
-                    {entry.memo ? ` · ${entry.memo}` : ''}
-                  </div>
-                  <div
-                    className="feed-meta"
-                    style={{ color: entry.outcome === 'executed' ? undefined : 'var(--red)' }}
-                  >
-                    {entry.message}
-                  </div>
-                </div>
-                {entry.violatedRule && <Pill tone="bad">{entry.violatedRule}</Pill>}
+                <span className="feed-time">{relativeTime(entry.at)}</span>
               </div>
-            ))}
+              <div className="feed-meta">
+                {labelFor(app, entry.mandateId)} · {truncateAddress(entry.recipient, 10, 4)}
+                {entry.memo ? ` · ${entry.memo}` : ''}
+              </div>
+              <div
+                className={`feed-amount ${
+                  entry.outcome === 'executed' ? 'feed-amount-ok' : 'feed-amount-bad'
+                }`}
+              >
+                {entry.outcome === 'executed' ? '−' : ''}
+                {formatToken(entry.amount)}
+              </div>
+              {entry.outcome !== 'executed' && (
+                <div className="feed-meta" style={{ color: 'var(--red)' }}>
+                  {entry.message}
+                </div>
+              )}
+            </div>
+            {entry.violatedRule && <Pill tone="bad">{entry.violatedRule}</Pill>}
           </div>
-        </div>
-      )}
-    </>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -889,111 +954,110 @@ function Disclosure({ app }: { app: App }) {
   const [note, setNote] = useState<ActionResult | null>(null);
   const selected = app.mandates.find((m) => m.id === mandateId) ?? app.mandates[0];
 
+  if (app.mandates.length === 0) {
+    return (
+      <EmptyState
+        title="Nothing to disclose yet"
+        body="Disclosures are proven against a mandate's commitment. Create a mandate first."
+      />
+    );
+  }
+
   return (
-    <>
-      <div className="db-head">
-        <h1>Selective disclosure</h1>
-        <p>Prove one fact to a third party without opening anything else.</p>
-      </div>
-
-      {app.mandates.length === 0 ? (
-        <EmptyState
-          title="Nothing to disclose yet"
-          body="Disclosures are proven against a mandate's commitment. Create a mandate first."
-        />
-      ) : (
-        <div className="db-cols">
-          <div className="card">
-            <div className="card-head">
-              <div>
-                <div className="card-title">
-                  <Eye size={16} />
-                  Publish a proof
-                </div>
-                <p className="card-sub">
-                  The first proves a statement and publishes no rule value at all. The others open
-                  exactly one field, proven consistent with the commitment; every other rule stays
-                  hidden.
-                </p>
-              </div>
+    <div className="db-cols">
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <div className="card-title">
+              <span className="tile tile-sm">
+                <Eye size={16} />
+              </span>
+              Publish a proof
             </div>
-
-            <Field label="Mandate">
-              <select value={selected?.id ?? ''} onChange={(e) => setMandateId(e.target.value)}>
-                {app.mandates.map((mandate) => (
-                  <option key={mandate.id} value={mandate.id}>
-                    {mandate.spec.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <div className="btn-row" style={{ marginTop: 18 }}>
-              <button
-                className="btn btn-primary"
-                onClick={() => selected && setNote(app.discloseTotalRespected(selected.id))}
-              >
-                Total limit was respected
-              </button>
-              <button
-                className="btn"
-                onClick={() => selected && setNote(app.discloseField(selected.id, 2n))}
-              >
-                Reveal max per transaction
-              </button>
-              <button
-                className="btn"
-                onClick={() => selected && setNote(app.discloseField(selected.id, 3n))}
-              >
-                Reveal valid until
-              </button>
-            </div>
-
-            {note && (
-              <div style={{ marginTop: 18 }}>
-                <Notice tone={note.ok ? 'ok' : 'bad'}>{note.message}</Notice>
-              </div>
-            )}
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <div>
-                <div className="card-title">
-                  <Pulse size={16} />
-                  Published
-                </div>
-                <p className="card-sub">What a third party reading the ledger would see.</p>
-              </div>
-            </div>
-
-            {app.disclosures.length === 0 ? (
-              <p className="hint" style={{ padding: '14px 0' }}>
-                No disclosures published.
-              </p>
-            ) : (
-              <div className="feed">
-                {app.disclosures.map((entry, index) => (
-                  <DisclosureItem
-                    key={`${entry.mandateId}-${index}`}
-                    title={DISCLOSURE_LABELS[entry.kind] ?? `Field ${entry.kind}`}
-                    detail={
-                      <>
-                        {entry.revealsValue ? (
-                          <span className="mono">{formatToken(entry.value)}</span>
-                        ) : (
-                          'proven — no value revealed'
-                        )}{' '}
-                        · <Hash value={entry.mandateId} chars={8} />
-                      </>
-                    }
-                  />
-                ))}
-              </div>
-            )}
+            <p className="card-sub">
+              The first proves a statement and publishes no rule value at all. The others open
+              exactly one field, proven consistent with the commitment; every other rule stays
+              hidden.
+            </p>
           </div>
         </div>
-      )}
-    </>
+
+        <Field label="Mandate">
+          <select value={selected?.id ?? ''} onChange={(e) => setMandateId(e.target.value)}>
+            {app.mandates.map((mandate) => (
+              <option key={mandate.id} value={mandate.id}>
+                {mandate.spec.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <div className="btn-row" style={{ marginTop: 20 }}>
+          <button
+            className="btn btn-primary"
+            onClick={() => selected && setNote(app.discloseTotalRespected(selected.id))}
+          >
+            Total limit was respected
+          </button>
+          <button
+            className="btn"
+            onClick={() => selected && setNote(app.discloseField(selected.id, 2n))}
+          >
+            Reveal max per transaction
+          </button>
+          <button
+            className="btn"
+            onClick={() => selected && setNote(app.discloseField(selected.id, 3n))}
+          >
+            Reveal valid until
+          </button>
+        </div>
+
+        {note && (
+          <div style={{ marginTop: 20 }}>
+            <Notice tone={note.ok ? 'ok' : 'bad'}>{note.message}</Notice>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <div className="card-title">
+              <span className="tile tile-sm">
+                <Pulse size={16} />
+              </span>
+              Published
+            </div>
+            <p className="card-sub">What a third party reading the ledger would see.</p>
+          </div>
+        </div>
+
+        {app.disclosures.length === 0 ? (
+          <p className="hint" style={{ padding: '16px 0' }}>
+            No disclosures published.
+          </p>
+        ) : (
+          <div className="feed">
+            {app.disclosures.map((entry, index) => (
+              <DisclosureItem
+                key={`${entry.mandateId}-${index}`}
+                title={DISCLOSURE_LABELS[entry.kind] ?? `Field ${entry.kind}`}
+                detail={
+                  <>
+                    {entry.revealsValue ? (
+                      <span className="mono">{formatToken(entry.value)}</span>
+                    ) : (
+                      'proven — no value revealed'
+                    )}{' '}
+                    · <Hash value={entry.mandateId} chars={8} />
+                  </>
+                }
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
