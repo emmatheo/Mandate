@@ -72,7 +72,12 @@ export const DEFAULT_ZK_BASE_PATH = '/zk';
 export const compiledMandateContract = CompiledContract.make<MandateContract, MandatePrivateState>(
   'mandate',
   Contract,
-).pipe(CompiledContract.withWitnesses(witnesses));
+).pipe(
+  CompiledContract.withWitnesses(witnesses),
+  // The ZK artifacts are served over HTTP by `FetchZkConfigProvider`, so this
+  // file-assets path is only a label here; nothing reads from disk in the browser.
+  CompiledContract.withCompiledFileAssets('mandate'),
+);
 
 // ---------------------------------------------------------------------------
 // Wallet connection
@@ -186,9 +191,24 @@ function walletProviderFrom(connection: WalletConnection): WalletProvider & Midn
  * artifacts it needs, and the proof is produced inside the wallet rather than
  * by any service this app controls.
  */
+export interface ProviderOptions {
+  /**
+   * Supplies the password that encrypts private state at rest.
+   *
+   * This is the key to the mandate rules and to the creator secrets that
+   * authorize revocation and withdrawal. Prompt the user for it; never derive
+   * it from anything public, and never hard-code one.
+   *
+   * The provider enforces a strength policy: at least 16 characters, mixing at
+   * least three of upper/lower/digit/symbol, no long runs or sequences.
+   */
+  passwordProvider: () => string | Promise<string>;
+  zkBaseUrl?: string;
+}
+
 export async function createProviders(
   connection: WalletConnection,
-  options: { zkBaseUrl?: string } = {},
+  options: ProviderOptions,
 ): Promise<MandateProviders> {
   const zkBaseUrl =
     options.zkBaseUrl ??
@@ -207,7 +227,13 @@ export async function createProviders(
     privateStateProvider: levelPrivateStateProvider<
       typeof PRIVATE_STATE_ID,
       MandatePrivateState
-    >({ privateStateStoreName: 'mandate-private-state' }),
+    >({
+      privateStateStoreName: 'mandate-private-state',
+      privateStoragePasswordProvider: options.passwordProvider,
+      // Scopes storage per wallet, so two accounts in one browser never see
+      // each other's mandates.
+      accountId: connection.unshieldedAddress,
+    }),
     publicDataProvider: indexerPublicDataProvider(
       connection.indexerUri,
       connection.indexerWsUri,
