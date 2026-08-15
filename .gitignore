@@ -10,6 +10,12 @@ next-env.d.ts
 # are committed instead, so a Vercel build never needs the Compact toolchain.
 contract/build/
 
+# Local review scratch (screenshots, browser drivers).
+.screens/
+.capture.mjs
+.drive*.mjs
+.probe.mjs
+
 # Agent working directory: private mandate rules and secrets live here.
 .mandate/
 *.private-state.json
