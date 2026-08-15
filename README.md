@@ -88,7 +88,7 @@ Deposits and transfers are public because they are movements on a public ledger.
 npm install
 npm test                  # 43 tests against the real compiled circuits
 npm run agent -- demo     # the whole lifecycle, end to end
-npm run dev               # the dashboard at http://localhost:3000
+npm run dev               # landing page at http://localhost:3000, app at /app
 ```
 
 `npm run agent -- demo` runs the full script: a private mandate created and funded, only the commitment on chain, a compliant payment executed, an over-limit payment and a payment to an unlisted recipient both refused, the daily cap enforced, revocation, reclaim, and both disclosure circuits. Step 5 also bypasses the agent and calls the circuit directly, so you can see the refusal is an unsatisfiable constraint rather than a UI check.
@@ -150,7 +150,8 @@ lib/                           domain model, rule engine, witnesses, network cli
 lib/mandate.test.ts            43 tests against the real circuits
 lib/simulator.ts               in-process execution of the compiled circuits
 agent/                         the agent, its executors, and the demo CLI
-app/                           the dashboard
+app/page.tsx                   landing page (static, no wallet or WebAssembly)
+app/app/page.tsx               the dashboard
 ```
 
 ## What is real, and what is not
@@ -161,6 +162,7 @@ Being precise about this matters more than sounding finished.
 - The Compact contract compiles and every circuit is genuine. The proving keys in this repository were produced by `compactc`, not stubbed.
 - All authorization logic, escrow accounting, revocation, withdrawal and selective disclosure are enforced by circuit constraints. Nothing about verification or money movement is mocked.
 - 43 tests execute the compiled circuits in-process against real ledger state. The dashboard executes the same circuits in the browser.
+- The dashboard renders only real state. There is no seeded mandate, no sample balance and no placeholder activity anywhere in the app: with nothing created, every panel shows an empty state.
 
 **Not yet exercised:**
 - The live-network path in [`lib/client.ts`](lib/client.ts) — wallet connection, transaction balancing, submission, indexer reads — is written against the current `midnight-js` and DApp-connector APIs but has **not** been run against a deployed contract on Preprod. It needs a funded Lace wallet and network access, neither of which was available in the environment this was built in. Expect to iterate on it during first deployment.

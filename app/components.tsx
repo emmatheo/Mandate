@@ -1,8 +1,10 @@
 'use client';
 
-/** Presentational building blocks for the Mandate dashboard. */
+/** Presentational building blocks shared across the dashboard. */
 
-import type { PreCheckResult, RuleCheck } from '../lib/types';
+import { Check, Info, X } from './icons';
+import type { ActivityEntry, PreCheckResult, RuleCheck } from '../lib/types';
+import { formatToken, truncateAddress } from '../lib/encoding';
 
 export function Pill({
   tone,
@@ -11,43 +13,22 @@ export function Pill({
   tone: 'ok' | 'bad' | 'warn' | 'muted';
   children: React.ReactNode;
 }) {
-  return <span className={`pill pill-${tone}`}>{children}</span>;
-}
-
-export function Stat({
-  label,
-  value,
-  meter,
-}: {
-  label: string;
-  value: string;
-  meter?: { used: bigint; total: bigint };
-}) {
-  const pct =
-    meter && meter.total > 0n
-      ? Math.min(100, Number((meter.used * 100n) / meter.total))
-      : undefined;
   return (
-    <div className="stat">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
-      {pct !== undefined && (
-        <div className="meter">
-          <div className="meter-fill" style={{ width: `${pct}%` }} />
-        </div>
-      )}
-    </div>
+    <span className={`pill pill-${tone}`}>
+      {(tone === 'ok' || tone === 'bad') && <span className="dot" />}
+      {children}
+    </span>
   );
 }
 
-export function Banner({
+export function Notice({
   tone = 'info',
   children,
 }: {
-  tone?: 'info' | 'warn' | 'bad';
+  tone?: 'info' | 'ok' | 'warn' | 'bad';
   children: React.ReactNode;
 }) {
-  return <div className={`banner banner-${tone}`}>{children}</div>;
+  return <div className={`notice notice-${tone}`}>{children}</div>;
 }
 
 export function Field({
@@ -68,17 +49,44 @@ export function Field({
   );
 }
 
+export function EmptyState({
+  title,
+  body,
+  action,
+}: {
+  title: string;
+  body: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="empty">
+      <h3>{title}</h3>
+      <p>{body}</p>
+      {action}
+    </div>
+  );
+}
+
+/** A hash, recognisable without dominating the layout. */
+export function Hash({ value, chars = 10 }: { value: string; chars?: number }) {
+  return (
+    <span className="mono" title={value}>
+      {value.slice(0, chars)}…{value.slice(-4)}
+    </span>
+  );
+}
+
 /**
  * The authorization verdict, rule by rule.
  *
- * Showing every rule rather than only the failure is deliberate: the point of
- * the product is that authority is bounded and legible, and a user should be
- * able to see the whole envelope their agent is operating inside.
+ * Every rule is listed, not only the one that failed: the product's claim is
+ * that an agent's authority is bounded and legible, so the whole envelope is
+ * worth showing.
  */
 export function RuleReport({ result }: { result: PreCheckResult }) {
   return (
     <div>
-      <div style={{ marginBottom: 10 }}>
+      <div style={{ marginBottom: 12 }}>
         {result.authorized ? (
           <Pill tone="ok">Authorized — every rule satisfied</Pill>
         ) : (
@@ -95,7 +103,7 @@ export function RuleReport({ result }: { result: PreCheckResult }) {
 function RuleRow({ check }: { check: RuleCheck }) {
   return (
     <div className="rule-row">
-      <span className="rule-mark" style={{ color: check.passed ? 'var(--ok)' : 'var(--bad)' }}>
+      <span className="rule-mark" style={{ color: check.passed ? 'var(--green)' : 'var(--red)' }}>
         {check.passed ? '✓' : '✕'}
       </span>
       <span style={{ flex: 1 }}>
@@ -103,22 +111,62 @@ function RuleRow({ check }: { check: RuleCheck }) {
           {check.label}
         </span>
         {!check.passed && check.detail && (
-          <div style={{ color: 'var(--bad)', marginTop: 2 }}>{check.detail}</div>
+          <div style={{ color: 'var(--red)', marginTop: 2 }}>{check.detail}</div>
         )}
       </span>
     </div>
   );
 }
 
-export function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="empty">{children}</div>;
+/** One row of the agent activity feed. */
+export function FeedItem({ entry, label }: { entry: ActivityEntry; label: string }) {
+  const executed = entry.outcome === 'executed';
+  return (
+    <div className="feed-item">
+      <span className={`feed-icon ${executed ? 'feed-ok' : 'feed-bad'}`}>
+        {executed ? <Check size={12} /> : <X size={12} />}
+      </span>
+      <div className="feed-main">
+        <div className="feed-title">
+          <span>{executed ? 'Payment executed' : 'Payment refused'}</span>
+          <span className="feed-time">{relativeTime(entry.at)}</span>
+        </div>
+        <div className="feed-meta">
+          {label} · {formatToken(entry.amount)} → {truncateAddress(entry.recipient, 8, 4)}
+        </div>
+        {!executed && <div className="feed-meta" style={{ color: 'var(--red)' }}>{entry.message}</div>}
+      </div>
+    </div>
+  );
 }
 
-/** A hash rendered so it is recognisable without dominating the layout. */
-export function Hash({ value, chars = 10 }: { value: string; chars?: number }) {
+/** A published disclosure, as a third party would see it. */
+export function DisclosureItem({
+  title,
+  detail,
+}: {
+  title: string;
+  detail: React.ReactNode;
+}) {
   return (
-    <span className="mono" title={value}>
-      {value.slice(0, chars)}…{value.slice(-4)}
-    </span>
+    <div className="feed-item">
+      <span className="feed-icon feed-info">
+        <Info size={12} />
+      </span>
+      <div className="feed-main">
+        <div className="feed-title">
+          <span>{title}</span>
+        </div>
+        <div className="feed-meta">{detail}</div>
+      </div>
+    </div>
   );
+}
+
+export function relativeTime(seconds: number): string {
+  const delta = Math.max(0, Math.floor(Date.now() / 1000) - seconds);
+  if (delta < 60) return 'just now';
+  if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
+  if (delta < 86_400) return `${Math.floor(delta / 3600)}h ago`;
+  return `${Math.floor(delta / 86_400)}d ago`;
 }
