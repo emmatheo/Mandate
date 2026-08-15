@@ -240,6 +240,7 @@ export function toRecordView(id: string, record: {
   commitment: Uint8Array;
   agentPublicKey: Uint8Array;
   creatorAuth: Uint8Array;
+  creatorAddress: Uint8Array;
   escrow: bigint;
   deposited: bigint;
   spent: bigint;
@@ -253,6 +254,7 @@ export function toRecordView(id: string, record: {
     commitment: bytesToHex(record.commitment),
     agentPublicKey: bytesToHex(record.agentPublicKey),
     creatorAuth: bytesToHex(record.creatorAuth),
+    creatorAddress: bytesToHex(record.creatorAddress),
     escrow: record.escrow,
     deposited: record.deposited,
     spent: record.spent,

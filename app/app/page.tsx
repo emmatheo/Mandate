@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 import {
   formatAmount,
   formatToken,
+  isValidRecipient,
   parseAmount,
   randomHex32,
   truncateAddress,
@@ -108,7 +109,7 @@ export default function Dashboard() {
             <p>{SECTION_TITLES[section].subtitle}</p>
           </div>
           <div className="db-chips">
-            <SessionChip />
+            <SessionChip address={app.sessionAddress} />
             <NetworkChip />
           </div>
         </header>
@@ -135,11 +136,22 @@ export default function Dashboard() {
  * With no wallet connected there is no address to show, and inventing one would
  * be exactly the thing this product exists to make impossible. It says so instead.
  */
-function SessionChip() {
+function SessionChip({ address }: { address: string }) {
   return (
-    <span className="db-chip" title="No wallet is connected; this session is local to your browser">
+    <span
+      className="db-chip"
+      title={
+        address
+          ? `No wallet is connected. This session funds and reclaims from ${address}`
+          : 'No wallet is connected; this session is local to your browser'
+      }
+    >
       <Lock size={14} />
-      Local session
+      {address ? (
+        <span className="mono">{truncateAddress(address, 8, 4)}</span>
+      ) : (
+        'Local session'
+      )}
     </span>
   );
 }
@@ -302,7 +314,6 @@ function MandateCard({ app, mandate }: { app: App; mandate: StoredMandate }) {
   const record = app.records[mandate.id];
   const [note, setNote] = useState<ActionResult | null>(null);
   const [confirming, setConfirming] = useState(false);
-  const [reclaimTo, setReclaimTo] = useState('');
   const [askReclaim, setAskReclaim] = useState(false);
 
   if (!record) return null;
@@ -363,10 +374,22 @@ function MandateCard({ app, mandate }: { app: App; mandate: StoredMandate }) {
         </div>
       </div>
 
+      <div className="m-row" style={{ marginTop: 12 }}>
+        <span>Reclaims to</span>
+        <span className="mono" title={record.creatorAddress}>
+          {truncateAddress(record.creatorAddress, 8, 4)}
+        </span>
+      </div>
+
       <div className="m-actions">
         <button
           className="btn btn-danger btn-sm"
           disabled={record.revoked}
+          title={
+            confirming
+              ? 'Click again to revoke permanently'
+              : 'Permanently stop this agent and unlock the balance for reclaim'
+          }
           onClick={() => {
             if (!confirming) {
               setConfirming(true);
@@ -395,27 +418,37 @@ function MandateCard({ app, mandate }: { app: App; mandate: StoredMandate }) {
       </div>
 
       {/*
-        The reclaim address is asked for rather than assumed. It is bound into
-        the proof, so getting it right matters and guessing on the user's behalf
-        would be the wrong kind of convenience.
+        The destination is not asked for, because the contract does not accept
+        one: the balance always returns to the address that funded the mandate.
+        Showing that address is the honest way to confirm the action.
       */}
+      {confirming && !record.revoked && (
+        <div style={{ marginTop: 14 }}>
+          <Notice tone="warn">
+            Revoking is permanent. The agent will be unable to authorize anything further, and the
+            remaining {formatToken(record.escrow)} becomes reclaimable by you. Click Confirm to
+            proceed.
+          </Notice>
+        </div>
+      )}
+
       {askReclaim && record.revoked && (
         <div style={{ marginTop: 16 }}>
-          <Field label="Reclaim to" hint="Bound into the proof, so nobody can redirect the funds.">
-            <input
-              type="text"
-              className="mono"
-              value={reclaimTo}
-              placeholder="Address to return the balance to"
-              onChange={(e) => setReclaimTo(e.target.value.trim())}
-            />
-          </Field>
+          <Notice tone="info">
+            <div>
+              <strong>{formatToken(record.escrow)}</strong> will be returned to the address that
+              funded this mandate:
+              <br />
+              <span className="mono">{truncateAddress(record.creatorAddress, 16, 8)}</span>
+              <br />
+              The contract accepts no other destination, so this cannot be redirected.
+            </div>
+          </Notice>
           <div className="btn-row" style={{ marginTop: 12 }}>
             <button
               className="btn btn-sm btn-primary"
-              disabled={reclaimTo.length === 0}
               onClick={() => {
-                setNote(app.withdraw(mandate.id, reclaimTo));
+                setNote(app.withdraw(mandate.id));
                 setAskReclaim(false);
               }}
             >
@@ -457,10 +490,11 @@ function CreateForm({ app }: { app: App }) {
   const [maxPer, setMaxPer] = useState('');
   const [period, setPeriod] = useState<PeriodKind>('none');
   const [periodLimit, setPeriodLimit] = useState('');
-  const [days, setDays] = useState('30');
+  const [validDays, setValidDays] = useState('30');
   const [recipients, setRecipients] = useState('');
   const [agentSecret, setAgentSecret] = useState('');
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const agentPublicKey = useMemo(() => {
     try {
@@ -470,9 +504,64 @@ function CreateForm({ app }: { app: App }) {
     }
   }, [agentSecret]);
 
+  /**
+   * Problems the user can see before they commit funds.
+   *
+   * Everything here is also enforced by the circuit; this only moves the
+   * feedback to before the deposit rather than after it.
+   */
+  const problems = useMemo(() => {
+    const found: string[] = [];
+    const check = (value: string, what: string) => {
+      if (value.trim() === '') return;
+      try {
+        if (parseAmount(value) <= 0n) found.push(`${what} must be greater than zero.`);
+      } catch (error) {
+        found.push(`${what}: ${(error as Error).message}`);
+      }
+    };
+    check(deposit, 'Deposit');
+    check(maxTotal, 'Max total spend');
+    check(maxPer, 'Max per transaction');
+    if (period !== 'none') check(periodLimit, 'Rolling limit amount');
+
+    try {
+      if (maxPer.trim() && maxTotal.trim() && parseAmount(maxPer) > parseAmount(maxTotal)) {
+        found.push('The per-transaction limit cannot exceed the total spend limit.');
+      }
+    } catch {
+      /* the individual amount errors above already cover this */
+    }
+
+    if (agentSecret.trim() !== '' && agentPublicKey === '') {
+      found.push('The agent secret key must be 64 hexadecimal characters.');
+    }
+
+    const list = recipients.split(/[\s,]+/).map((r) => r.trim()).filter(Boolean);
+    if (list.length > 8) found.push('At most 8 recipients can be allow-listed.');
+    for (const address of list) {
+      if (!isValidRecipient(address, LOCAL_NETWORK_ID)) {
+        found.push(`"${truncateAddress(address, 12, 4)}" is not a valid recipient address.`);
+      }
+    }
+
+    const days = Number(validDays);
+    if (!Number.isFinite(days) || days <= 0) {
+      found.push('Validity must be a positive number of days.');
+    }
+    return found;
+  }, [deposit, maxTotal, maxPer, period, periodLimit, agentSecret, agentPublicKey, recipients, validDays]);
+
+  const unrestricted = recipients.trim() === '';
+
   function submit(event: React.FormEvent) {
     event.preventDefault();
     setResult(null);
+    if (problems.length > 0) {
+      setResult({ ok: false, message: problems[0] });
+      return;
+    }
+    setBusy(true);
     try {
       const now = Math.floor(Date.now() / 1000);
       const created = app.createMandate(
@@ -481,7 +570,7 @@ function CreateForm({ app }: { app: App }) {
           maxTotalSpend: parseAmount(maxTotal),
           maxPerTransaction: parseAmount(maxPer),
           validFrom: now - 60,
-          validUntil: now + Math.max(1, Number(days) || 1) * DAY,
+          validUntil: now + Math.max(1, Number(validDays) || 1) * DAY,
           period,
           periodLimit: period === 'none' ? 0n : parseAmount(periodLimit),
           allowedRecipients: recipients
@@ -507,6 +596,8 @@ function CreateForm({ app }: { app: App }) {
       }
     } catch (error) {
       setResult({ ok: false, message: (error as Error).message });
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -588,8 +679,8 @@ function CreateForm({ app }: { app: App }) {
           <input
             type="text"
             inputMode="numeric"
-            value={days}
-            onChange={(e) => setDays(e.target.value)}
+            value={validDays}
+            onChange={(e) => setValidDays(e.target.value)}
             required
           />
         </Field>
@@ -635,17 +726,54 @@ function CreateForm({ app }: { app: App }) {
         )}
       </div>
 
-      {result && (
+      {unrestricted && (
         <div style={{ marginTop: 20 }}>
+          <Notice tone="warn">
+            <div>
+              <strong>No recipient allow-list.</strong> With this left empty the agent may send to
+              any address, including one it controls. The amount limits still apply, but naming the
+              recipients you expect is the stronger guarantee.
+            </div>
+          </Notice>
+        </div>
+      )}
+
+      {problems.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <Notice tone="bad">
+            <div>
+              {problems.map((problem) => (
+                <div key={problem}>{problem}</div>
+              ))}
+            </div>
+          </Notice>
+        </div>
+      )}
+
+      {result && (
+        <div style={{ marginTop: 16 }}>
           <Notice tone={result.ok ? 'ok' : 'bad'}>
             <span className={result.ok ? 'mono' : undefined}>{result.message}</span>
           </Notice>
         </div>
       )}
 
-      <div className="btn-row" style={{ marginTop: 20 }}>
-        <button type="submit" className="btn btn-primary">
-          Create and fund escrow
+      <p className="hint" style={{ marginTop: 18 }}>
+        Funds are deposited from, and can only ever be returned to, this session&rsquo;s address
+        {app.sessionAddress ? (
+          <>
+            {' '}
+            <span className="mono">{truncateAddress(app.sessionAddress, 12, 6)}</span>
+          </>
+        ) : (
+          ''
+        )}
+        .
+      </p>
+
+      <div className="btn-row" style={{ marginTop: 14 }}>
+        <button type="submit" className="btn btn-primary" disabled={busy || problems.length > 0}>
+          {busy ? 'Proving…' : 'Create and fund escrow'}
         </button>
       </div>
     </form>
@@ -703,6 +831,11 @@ function MandateDetails({ app }: { app: App }) {
               </dd>
               <dt>Deposited</dt>
               <dd>{record ? formatToken(record.deposited) : '—'}</dd>
+              <dt>Funding address</dt>
+              <dd>
+                <span className="mono">{truncateAddress(mandate.creatorAddress, 14, 6)}</span>
+                <div className="hint">The only address the escrow can be returned to.</div>
+              </dd>
             </dl>
 
             <div className="label" style={{ marginBottom: 7 }}>
@@ -752,9 +885,28 @@ function Agents({ app }: { app: App }) {
   async function propose(event: React.FormEvent) {
     event.preventDefault();
     if (!selected) return;
+
+    // Validate the inputs themselves before asking the agent to prove anything:
+    // a malformed address is a typo, not a rule violation, and should not be
+    // reported as one.
+    let value: bigint;
+    try {
+      value = parseAmount(amount);
+    } catch (error) {
+      setLast({ ok: false, message: (error as Error).message });
+      return;
+    }
+    if (!isValidRecipient(recipient.trim(), LOCAL_NETWORK_ID)) {
+      setLast({
+        ok: false,
+        message: 'That recipient is not a valid address. Paste it exactly as the wallet shows it.',
+      });
+      return;
+    }
+
     setBusy(true);
     try {
-      setLast(await app.runAgentAction(selected.id, recipient.trim(), parseAmount(amount), memo));
+      setLast(await app.runAgentAction(selected.id, recipient.trim(), value, memo));
     } catch (error) {
       setLast({ ok: false, message: (error as Error).message });
     } finally {

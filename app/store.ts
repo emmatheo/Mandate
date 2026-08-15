@@ -15,7 +15,7 @@
  * never sent to a server, and this app has no server route that could receive it.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { MandateAgent } from '../agent/agent';
 import { SimulatedExecutor } from '../agent/simulated-executor';
@@ -39,6 +39,23 @@ import type {
 } from '../lib/types';
 
 export const LOCAL_NETWORK_ID = 'undeployed';
+
+/**
+ * The address that funds mandates in this session.
+ *
+ * With no wallet connected there is no real wallet address, so the session
+ * mints one and uses it consistently: it is bound into every mandate created
+ * here and is the only address the contract will return escrow to. When a
+ * wallet is connected this is replaced by its unshielded address.
+ *
+ * It must be generated *after* mount rather than during render. The page is
+ * prerendered at build time, so a random value produced while rendering would
+ * differ between the server's HTML and the client's, and React would report a
+ * hydration mismatch.
+ */
+function makeSessionAddress(): string {
+  return randomHex32();
+}
 
 export interface AppState {
   mandates: StoredMandate[];
@@ -84,6 +101,10 @@ export function useMandateApp() {
   const simRef = useRef<MandateSimulator | null>(null);
   const executorRef = useRef<SimulatedExecutor | null>(null);
   const privateRef = useRef<MandatePrivateState>(emptyPrivateState(LOCAL_NETWORK_ID));
+  const [sessionAddress, setSessionAddress] = useState('');
+  useEffect(() => {
+    setSessionAddress((current) => (current === '' ? makeSessionAddress() : current));
+  }, []);
 
   const [state, setState] = useState<AppState>({
     mandates: [],
@@ -151,7 +172,12 @@ export function useMandateApp() {
         if (problems.length > 0) return { ok: false, error: problems.join(' ') };
         if (deposit <= 0n) return { ok: false, error: 'The deposit must be greater than zero.' };
 
+        if (sessionAddress === '') {
+          return { ok: false, error: 'The session is still starting up. Try again in a moment.' };
+        }
+
         const id = randomHex32();
+        const creatorAddress = sessionAddress;
         const commitment = deriveCommitment(toContractRules(spec, LOCAL_NETWORK_ID), secrets.salt);
 
         // Register in private state *before* running the circuit: the witness
@@ -160,10 +186,17 @@ export function useMandateApp() {
 
         const { sim } = ensureSim();
         sim.setBlockTime(Math.floor(Date.now() / 1000));
-        sim.createMandate(id, deposit);
+        try {
+          sim.createMandate(id, creatorAddress, deposit);
+        } catch (error) {
+          // The circuit refused. Do not leave a half-registered mandate behind.
+          delete privateRef.current.mandates[id];
+          throw error;
+        }
 
         const mandate: StoredMandate = {
           id,
+          creatorAddress,
           spec,
           secrets,
           commitment,
@@ -173,11 +206,10 @@ export function useMandateApp() {
         refresh(mandates);
         return { ok: true, mandate };
       } catch (error) {
-        delete privateRef.current.mandates[''];
-        return { ok: false, error: (error as Error).message };
+        return { ok: false, error: cleanError(error) };
       }
     },
-    [ensureSim, refresh, state.mandates],
+    [ensureSim, refresh, sessionAddress, state.mandates],
   );
 
   /** Have the authorized agent attempt an action. */
@@ -231,14 +263,21 @@ export function useMandateApp() {
     [ensureSim, refresh, state.mandates],
   );
 
+  /**
+   * Reclaim the unspent balance.
+   *
+   * No destination is accepted here or by the contract: the escrow returns to
+   * the address that funded it, which is fixed at creation.
+   */
   const withdraw = useCallback(
-    (mandateId: string, recipient: string): ActionResult => {
+    (mandateId: string): ActionResult => {
       try {
-        const refund = ensureSim().sim.withdraw(mandateId, recipient);
+        const refund = ensureSim().sim.withdraw(mandateId);
+        const to = state.mandates.find((m) => m.id === mandateId)?.creatorAddress ?? '';
         refresh(state.mandates);
         return {
           ok: true,
-          message: `Reclaimed ${formatToken(refund)} to ${recipient.slice(0, 12)}…`,
+          message: `Reclaimed ${formatToken(refund)} to the funding address ${to.slice(0, 10)}…`,
         };
       } catch (error) {
         return { ok: false, message: cleanError(error) };
@@ -291,6 +330,7 @@ export function useMandateApp() {
 
   return {
     ...state,
+    sessionAddress,
     totals,
     createMandate,
     runAgentAction,

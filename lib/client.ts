@@ -293,9 +293,15 @@ function outcomeOf(result: { public: { txId: string; blockHeight?: number } }): 
 export async function createMandateOnChain(
   registry: Registry,
   id: string,
+  creatorAddress: string,
   deposit: bigint,
+  networkId: string,
 ): Promise<TxOutcome> {
-  const result = await registry.callTx.createMandate(hexToBytes(id), deposit);
+  const result = await registry.callTx.createMandate(
+    hexToBytes(id),
+    decodeUnshieldedAddress(creatorAddress, networkId),
+    deposit,
+  );
   return outcomeOf(result as never);
 }
 
@@ -333,16 +339,15 @@ export async function revokeMandateOnChain(
   return outcomeOf(result as never);
 }
 
-export async function withdrawOnChain(
-  registry: Registry,
-  id: string,
-  recipient: string,
-  networkId: string,
-): Promise<TxOutcome> {
-  const result = await registry.callTx.withdraw(
-    hexToBytes(id),
-    decodeUnshieldedAddress(recipient, networkId),
-  );
+/**
+ * Reclaim the unspent balance.
+ *
+ * No destination is passed: the contract returns it to the funding address it
+ * recorded at creation, so a compromised creator secret still cannot redirect
+ * the money.
+ */
+export async function withdrawOnChain(registry: Registry, id: string): Promise<TxOutcome> {
+  const result = await registry.callTx.withdraw(hexToBytes(id));
   return outcomeOf(result as never);
 }
 

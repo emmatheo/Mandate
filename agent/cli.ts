@@ -63,7 +63,7 @@ async function demo(): Promise<void> {
   // The recipients the mandate will be allowed (and not allowed) to pay.
   const SUPPLIER = 'a'.repeat(64);
   const STRANGER = 'c'.repeat(64);
-  const REFUND_TO = 'f'.repeat(64);
+  const DEPOSITOR = 'f'.repeat(64);
 
   step(1, 'The user writes a private mandate and funds it');
 
@@ -103,7 +103,7 @@ async function demo(): Promise<void> {
 
   const sim = new MandateSimulator(state);
   const executor = new SimulatedExecutor(sim, now);
-  sim.createMandate(id, 40n * UNIT);
+  sim.createMandate(id, DEPOSITOR, 40n * UNIT);
 
   step(2, 'Only a commitment and the agent key reach the chain');
   const record = (await executor.getRecord(id))!;
@@ -180,8 +180,12 @@ async function demo(): Promise<void> {
   const afterRevoke = await agent.act({ mandateId: id, recipient: SUPPLIER, amount: 1n * UNIT });
   console.log(`   ${c.red('✗ refused')}  ${afterRevoke.entry.message}`);
 
-  const refund = sim.withdraw(id, REFUND_TO);
-  console.log(`   ${c.green('✓ reclaimed')}  ${formatToken(refund)} returned to the creator`);
+  // No destination is passed: the contract returns the balance to the address
+  // that funded the mandate, and accepts no alternative.
+  const refund = sim.withdraw(id);
+  console.log(
+    `   ${c.green('✓ reclaimed')}  ${formatToken(refund)} returned to the funding address ${DEPOSITOR.slice(0, 10)}…`,
+  );
   console.log(`   escrow now      ${formatToken((await executor.getRecord(id))!.escrow)}`);
 
   step(8, 'Selective disclosure');

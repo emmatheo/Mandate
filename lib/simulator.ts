@@ -77,9 +77,14 @@ export class MandateSimulator {
     return result;
   }
 
-  createMandate(id: string, deposit: bigint): Uint8Array {
+  createMandate(id: string, creatorAddress: string, deposit: bigint): Uint8Array {
     return this.run((context) =>
-      this.contract.impureCircuits.createMandate(context, hexToBytes(id), deposit),
+      this.contract.impureCircuits.createMandate(
+        context,
+        hexToBytes(id),
+        hexToBytes(creatorAddress),
+        deposit,
+      ),
     );
   }
 
@@ -107,9 +112,15 @@ export class MandateSimulator {
     );
   }
 
-  withdraw(id: string, recipient: string): bigint {
+  /**
+   * Reclaim the unspent balance.
+   *
+   * There is deliberately no destination parameter: the contract always returns
+   * the balance to the address that funded the mandate.
+   */
+  withdraw(id: string): bigint {
     return this.run((context) =>
-      this.contract.impureCircuits.withdraw(context, hexToBytes(id), hexToBytes(recipient)),
+      this.contract.impureCircuits.withdraw(context, hexToBytes(id)),
     );
   }
 

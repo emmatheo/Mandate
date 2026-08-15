@@ -14,6 +14,7 @@ export type MandateRules = { maxTotalSpend: bigint;
 export type MandateRecord = { commitment: Uint8Array;
                               agentPublicKey: Uint8Array;
                               creatorAuth: Uint8Array;
+                              creatorAddress: Uint8Array;
                               escrow: bigint;
                               deposited: bigint;
                               spent: bigint;
@@ -43,6 +44,7 @@ export type Witnesses<PS> = {
 export type ImpureCircuits<PS> = {
   createMandate(context: __compactRuntime.CircuitContext<PS>,
                 id_0: Uint8Array,
+                creatorAddress_0: Uint8Array,
                 deposit_0: bigint): __compactRuntime.CircuitResults<PS, Uint8Array>;
   fundMandate(context: __compactRuntime.CircuitContext<PS>,
               id_0: Uint8Array,
@@ -53,9 +55,7 @@ export type ImpureCircuits<PS> = {
                 amount_0: bigint,
                 now_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   revokeMandate(context: __compactRuntime.CircuitContext<PS>, id_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
-  withdraw(context: __compactRuntime.CircuitContext<PS>,
-           id_0: Uint8Array,
-           recipient_0: Uint8Array): __compactRuntime.CircuitResults<PS, bigint>;
+  withdraw(context: __compactRuntime.CircuitContext<PS>, id_0: Uint8Array): __compactRuntime.CircuitResults<PS, bigint>;
   discloseTotalSpendRespected(context: __compactRuntime.CircuitContext<PS>,
                               id_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   discloseField(context: __compactRuntime.CircuitContext<PS>,
@@ -66,6 +66,7 @@ export type ImpureCircuits<PS> = {
 export type ProvableCircuits<PS> = {
   createMandate(context: __compactRuntime.CircuitContext<PS>,
                 id_0: Uint8Array,
+                creatorAddress_0: Uint8Array,
                 deposit_0: bigint): __compactRuntime.CircuitResults<PS, Uint8Array>;
   fundMandate(context: __compactRuntime.CircuitContext<PS>,
               id_0: Uint8Array,
@@ -76,9 +77,7 @@ export type ProvableCircuits<PS> = {
                 amount_0: bigint,
                 now_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   revokeMandate(context: __compactRuntime.CircuitContext<PS>, id_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
-  withdraw(context: __compactRuntime.CircuitContext<PS>,
-           id_0: Uint8Array,
-           recipient_0: Uint8Array): __compactRuntime.CircuitResults<PS, bigint>;
+  withdraw(context: __compactRuntime.CircuitContext<PS>, id_0: Uint8Array): __compactRuntime.CircuitResults<PS, bigint>;
   discloseTotalSpendRespected(context: __compactRuntime.CircuitContext<PS>,
                               id_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   discloseField(context: __compactRuntime.CircuitContext<PS>,
@@ -102,6 +101,7 @@ export type Circuits<PS> = {
                           salt_0: Uint8Array): __compactRuntime.CircuitResults<PS, Uint8Array>;
   createMandate(context: __compactRuntime.CircuitContext<PS>,
                 id_0: Uint8Array,
+                creatorAddress_0: Uint8Array,
                 deposit_0: bigint): __compactRuntime.CircuitResults<PS, Uint8Array>;
   fundMandate(context: __compactRuntime.CircuitContext<PS>,
               id_0: Uint8Array,
@@ -112,9 +112,7 @@ export type Circuits<PS> = {
                 amount_0: bigint,
                 now_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   revokeMandate(context: __compactRuntime.CircuitContext<PS>, id_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
-  withdraw(context: __compactRuntime.CircuitContext<PS>,
-           id_0: Uint8Array,
-           recipient_0: Uint8Array): __compactRuntime.CircuitResults<PS, bigint>;
+  withdraw(context: __compactRuntime.CircuitContext<PS>, id_0: Uint8Array): __compactRuntime.CircuitResults<PS, bigint>;
   discloseTotalSpendRespected(context: __compactRuntime.CircuitContext<PS>,
                               id_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   discloseField(context: __compactRuntime.CircuitContext<PS>,

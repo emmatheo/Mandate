@@ -44,7 +44,11 @@ export function hexToBytes(hex: string): Uint8Array {
 export function assertHex32(value: string, what: string): string {
   const normalized = (value.startsWith('0x') ? value.slice(2) : value).toLowerCase();
   if (!HEX32.test(normalized)) {
-    throw new Error(`${what} must be 32 bytes of hex (64 characters), got "${value}"`);
+    const detail =
+      value.trim() === ''
+        ? 'it is empty'
+        : `it is ${normalized.length} characters and must be 64`;
+    throw new Error(`${what} must be 64 hexadecimal characters — ${detail}.`);
   }
   return normalized;
 }
@@ -73,9 +77,16 @@ export function decodeUnshieldedAddress(address: string, networkId: string): Uin
   if (HEX32.test(trimmed.toLowerCase())) {
     return hexToBytes(trimmed.toLowerCase());
   }
-  const parsed = MidnightBech32m.parse(trimmed);
-  const decoded = parsed.decode(UnshieldedAddress, networkId);
-  return new Uint8Array(decoded.data);
+  try {
+    const parsed = MidnightBech32m.parse(trimmed);
+    const decoded = parsed.decode(UnshieldedAddress, networkId);
+    return new Uint8Array(decoded.data);
+  } catch {
+    throw new Error(
+      `"${truncateAddress(trimmed, 14, 6)}" is not a valid Midnight unshielded address. ` +
+        'Paste the address exactly as your wallet shows it.',
+    );
+  }
 }
 
 /** True when `address` is something `decodeUnshieldedAddress` can handle. */
@@ -94,15 +105,21 @@ export function truncateAddress(address: string, lead = 12, tail = 6): string {
   return `${address.slice(0, lead)}…${address.slice(-tail)}`;
 }
 
-/** Parse a human amount ("12.5") into smallest units. */
+/**
+ * Parse a human amount ("12.5") into smallest units.
+ *
+ * Error messages here surface directly in the UI, so they are written for the
+ * person typing rather than for a log.
+ */
 export function parseAmount(input: string): bigint {
   const trimmed = input.trim();
-  if (!/^\d*\.?\d*$/.test(trimmed) || trimmed === '' || trimmed === '.') {
-    throw new Error(`"${input}" is not a valid amount`);
+  if (trimmed === '') throw new Error('Enter an amount.');
+  if (trimmed === '.' || !/^\d*\.?\d*$/.test(trimmed)) {
+    throw new Error(`"${input}" is not a valid amount. Use digits and at most one decimal point.`);
   }
   const [whole, fraction = ''] = trimmed.split('.');
   if (fraction.length > NIGHT_DECIMALS) {
-    throw new Error(`At most ${NIGHT_DECIMALS} decimal places are supported`);
+    throw new Error(`tNIGHT supports at most ${NIGHT_DECIMALS} decimal places.`);
   }
   const padded = fraction.padEnd(NIGHT_DECIMALS, '0');
   return BigInt(whole === '' ? '0' : whole) * 10n ** BigInt(NIGHT_DECIMALS) + BigInt(padded === '' ? '0' : padded);

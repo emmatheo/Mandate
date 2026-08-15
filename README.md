@@ -53,10 +53,10 @@ Violate any rule and the circuit is unsatisfiable. No proof exists. The money ca
 |---|---|---|
 | Mandate rules | commitment only | max total, max per transaction, validity window, rolling limits, recipient allow-list |
 | Agent | public key | secret key |
-| Creator | a hash of a secret | the secret, and the wallet identity |
+| Creator | a hash of a secret, and the funding address | the secret itself |
 | Money | deposits, transfers, balances | — |
 
-Deposits and transfers are public because they are movements on a public ledger. Everything that *governs* them is private.
+Deposits and transfers are public because they are movements on a public ledger. Everything that *governs* them is private. The funding address is public for the same reason: the deposit is an unshielded transfer from it, so it already appears in the funding transaction.
 
 ## The contract
 
@@ -65,10 +65,10 @@ Deposits and transfers are public because they are movements on a public ledger.
 | Circuit | What it does |
 |---|---|
 | `createMandate` | Derives the commitment in-circuit from local private state and funds the escrow |
-| `fundMandate` | Tops up a live mandate |
+| `fundMandate` | Creator-only; tops up a live mandate |
 | `executeAction` | The core circuit: opens the commitment, proves agent identity, checks every rule, releases funds |
 | `revokeMandate` | Creator-only; makes all future authorization proofs unsatisfiable |
-| `withdraw` | Creator-only; returns the unspent balance |
+| `withdraw` | Creator-only; returns the unspent balance **to the funding address only** |
 | `discloseTotalSpendRespected` | Proves a limit was honoured **without revealing it** |
 | `discloseField` | Reveals exactly one chosen field, proven against the commitment |
 
@@ -78,7 +78,14 @@ Deposits and transfers are public because they are movements on a public ledger.
 
 **Rolling limits are public.** `periodStart` and `periodSpent` are in the public record. This is a deliberate trade: it means a daily or weekly cap is enforced by the *chain* rather than by an agent's honesty about its own local history. An agent that resets its private memory still cannot exceed the cap. The cost is that an observer can infer roughly when a window rolls over — but transfer amounts and timings are already public, so this adds little. Enforcement was worth more than that margin.
 
-**Authority without identity.** Revocation and withdrawal authenticate the creator by knowledge of a secret, not by wallet address. Reclaiming funds therefore never publishes who you are. The withdrawal address is a public argument bound into the proof, so nobody can lift a proof and redirect the funds.
+**Only the funding wallet can be paid back.** Two independent locks protect the escrow, and both must hold:
+
+1. **Authorization.** `revokeMandate`, `withdraw` and `fundMandate` require proving knowledge of the creator's secret. No third party can trigger any of them.
+2. **Destination.** `withdraw` takes *no* destination parameter. The balance always returns to the `creatorAddress` recorded when the mandate was funded. Even an attacker who fully compromised the creator's secret could do nothing but push the money back to the original depositor.
+
+That second lock is what makes "only the wallet that deposited can withdraw" a property of the contract rather than of the user interface. The funding address is supplied by the depositor at creation; naming someone else's address there would only send your own refund to them, so it puts nobody else's funds at risk.
+
+`fundMandate` is creator-only for a related reason: a stranger topping up the escrow would silently widen how much the agent can actually move. That is the creator's decision to make.
 
 ## Try it
 
@@ -86,7 +93,7 @@ Deposits and transfers are public because they are movements on a public ledger.
 
 ```bash
 npm install
-npm test                  # 43 tests against the real compiled circuits
+npm test                  # 53 tests against the real compiled circuits
 npm run agent -- demo     # the whole lifecycle, end to end
 npm run dev               # landing page at http://localhost:3000, app at /app
 ```
@@ -102,6 +109,8 @@ The app is a standard Next.js project with no backend, so a normal import works:
 1. Push this repository to GitHub.
 2. In Vercel, **Add New → Project** and import it.
 3. Accept the defaults (framework Next.js, build `next build`) and deploy.
+
+Verified from a clean checkout of only the committed files: `npm install` then `next build` succeeds and every route is static, so there is no server runtime to configure.
 
 No environment variables are required — it will come up in local-demo mode. To point it at a deployed registry:
 
@@ -161,7 +170,8 @@ Being precise about this matters more than sounding finished.
 **Real:**
 - The Compact contract compiles and every circuit is genuine. The proving keys in this repository were produced by `compactc`, not stubbed.
 - All authorization logic, escrow accounting, revocation, withdrawal and selective disclosure are enforced by circuit constraints. Nothing about verification or money movement is mocked.
-- 43 tests execute the compiled circuits in-process against real ledger state. The dashboard executes the same circuits in the browser.
+- 53 tests execute the compiled circuits in-process against real ledger state, including adversarial custody cases: an attacker holding the creator's secret still cannot redirect a withdrawal, the agent has no path to the escrow outside a valid authorization, and value is conserved across deposit, spend and reclaim. The dashboard executes the same circuits in the browser.
+- A 44-check click-through audit drives every button and error path in a real browser: input validation, both refusal types, revoke, reclaim, all three disclosure buttons, and the agent being blocked after revocation.
 - The dashboard renders only real state. There is no seeded mandate, no sample balance and no placeholder activity anywhere in the app: with nothing created, every panel shows an empty state.
 
 **Not yet exercised:**

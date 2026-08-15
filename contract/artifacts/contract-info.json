@@ -145,6 +145,13 @@
           }
         },
         {
+          "name": "creatorAddress",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        },
+        {
           "name": "deposit",
           "type": {
             "type-name": "Uint",
@@ -249,13 +256,6 @@
       "arguments": [
         {
           "name": "id",
-          "type": {
-            "type-name": "Bytes",
-            "length": 32
-          }
-        },
-        {
-          "name": "recipient",
           "type": {
             "type-name": "Bytes",
             "length": 32
@@ -478,6 +478,13 @@
           },
           {
             "name": "creatorAuth",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "creatorAddress",
             "type": {
               "type-name": "Bytes",
               "length": 32

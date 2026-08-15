@@ -64,6 +64,11 @@ export interface MandateSecrets {
 export interface StoredMandate {
   /** 32-byte hex identifier, chosen at random on creation. */
   id: string;
+  /**
+   * The address that funded this mandate. The contract will only ever return
+   * the unspent balance here, so it is fixed at creation and never editable.
+   */
+  creatorAddress: string;
   spec: MandateSpec;
   secrets: MandateSecrets;
   /** The commitment published on-chain, derived locally. */
@@ -77,6 +82,8 @@ export interface MandateRecordView {
   commitment: string;
   agentPublicKey: string;
   creatorAuth: string;
+  /** The only address the escrow can ever be returned to. */
+  creatorAddress: string;
   escrow: bigint;
   deposited: bigint;
   spent: bigint;

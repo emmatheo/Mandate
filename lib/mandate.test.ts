@@ -35,6 +35,11 @@ const ALICE = 'a'.repeat(64);
 const BOB = 'b'.repeat(64);
 const MALLORY = 'c'.repeat(64);
 
+/** The wallet that funds mandates in these tests. */
+const DEPOSITOR = 'd'.repeat(64);
+/** An unrelated wallet, used to prove it cannot reach the escrow. */
+const ATTACKER = 'e'.repeat(64);
+
 /** Build a mandate plus the private state that can prove things about it. */
 function makeMandate(overrides: Partial<MandateSpec> = {}): {
   mandate: StoredMandate;
@@ -62,6 +67,7 @@ function makeMandate(overrides: Partial<MandateSpec> = {}): {
   const id = randomHex32();
   const mandate: StoredMandate = {
     id,
+    creatorAddress: DEPOSITOR,
     spec,
     secrets,
     commitment: deriveCommitment(toContractRules(spec, NETWORK), secrets.salt),
@@ -81,7 +87,7 @@ function fundedSimulator(overrides: Partial<MandateSpec> = {}, deposit = 40n * U
   const { mandate, state } = makeMandate(overrides);
   const sim = new MandateSimulator(state);
   sim.setBlockTime(T0);
-  sim.createMandate(mandate.id, deposit);
+  sim.createMandate(mandate.id, DEPOSITOR, deposit);
   return { sim, mandate };
 }
 
@@ -167,7 +173,7 @@ describe('createMandate', () => {
 
   it('rejects a duplicate mandate id', () => {
     const { sim, mandate } = fundedSimulator();
-    assert.throws(() => sim.createMandate(mandate.id, UNIT), /id already in use/);
+    assert.throws(() => sim.createMandate(mandate.id, DEPOSITOR, UNIT), /id already in use/);
   });
 
   it('rejects a per-transaction limit above the total limit', () => {
@@ -178,7 +184,7 @@ describe('createMandate', () => {
     const sim = new MandateSimulator(state);
     sim.setBlockTime(T0);
     assert.throws(
-      () => sim.createMandate(mandate.id, 5n * UNIT),
+      () => sim.createMandate(mandate.id, DEPOSITOR, 5n * UNIT),
       /maxPerTransaction cannot exceed maxTotalSpend/,
     );
   });
@@ -187,7 +193,7 @@ describe('createMandate', () => {
     const { mandate, state } = makeMandate();
     const sim = new MandateSimulator(state);
     sim.setBlockTime(T0);
-    assert.throws(() => sim.createMandate(mandate.id, 0n), /deposit must be greater than zero/);
+    assert.throws(() => sim.createMandate(mandate.id, DEPOSITOR, 0n), /deposit must be greater than zero/);
   });
 });
 
@@ -360,7 +366,7 @@ describe('executeAction — agent identity', () => {
     const { mandate, state } = makeMandate();
     const sim = new MandateSimulator(state);
     sim.setBlockTime(T0);
-    sim.createMandate(mandate.id, 50n * UNIT);
+    sim.createMandate(mandate.id, DEPOSITOR, 50n * UNIT);
 
     // A different agent gets hold of the rules and the salt — everything except
     // the agent secret key. It still cannot act.
@@ -375,7 +381,7 @@ describe('executeAction — agent identity', () => {
     };
     const hijacked = new MandateSimulator(impostor);
     hijacked.setBlockTime(T0);
-    hijacked.createMandate(mandate.id, 50n * UNIT);
+    hijacked.createMandate(mandate.id, DEPOSITOR, 50n * UNIT);
 
     assert.throws(
       () => act(hijacked, mandate.id, ALICE, UNIT, T0 + 10),
@@ -387,7 +393,7 @@ describe('executeAction — agent identity', () => {
     const { mandate, state } = makeMandate();
     const sim = new MandateSimulator(state);
     sim.setBlockTime(T0);
-    sim.createMandate(mandate.id, 50n * UNIT);
+    sim.createMandate(mandate.id, DEPOSITOR, 50n * UNIT);
 
     // The agent edits its local copy of the rules to raise its own limit. The
     // commitment on chain no longer opens.
@@ -418,40 +424,40 @@ describe('revoke and withdraw', () => {
     act(sim, mandate.id, ALICE, 10n * UNIT, T0 + 10);
     sim.revokeMandate(mandate.id);
 
-    const refund = sim.withdraw(mandate.id, BOB);
+    const refund = sim.withdraw(mandate.id);
     assert.equal(refund, 30n * UNIT);
     assert.equal(recordOf(sim, mandate.id).escrow, 0n);
   });
 
   it('requires revocation before withdrawal', () => {
     const { sim, mandate } = fundedSimulator();
-    assert.throws(() => sim.withdraw(mandate.id, BOB), /revoke the mandate before withdrawing/);
+    assert.throws(() => sim.withdraw(mandate.id), /revoke the mandate before withdrawing/);
   });
 
   it('refuses a withdrawal from someone who is not the creator', () => {
     const { mandate, state } = makeMandate();
     const sim = new MandateSimulator(state);
     sim.setBlockTime(T0);
-    sim.createMandate(mandate.id, 50n * UNIT);
+    sim.createMandate(mandate.id, DEPOSITOR, 50n * UNIT);
     sim.revokeMandate(mandate.id);
 
     // An attacker with the full rule set but not the creator secret.
     sim.privateState.mandates[mandate.id].secrets.creatorSecretKey = randomHex32();
-    assert.throws(() => sim.withdraw(mandate.id, MALLORY), /not the creator of this mandate/);
+    assert.throws(() => sim.withdraw(mandate.id), /not the creator of this mandate/);
   });
 
   it('refuses a second withdrawal', () => {
     const { sim, mandate } = fundedSimulator();
     sim.revokeMandate(mandate.id);
-    sim.withdraw(mandate.id, BOB);
-    assert.throws(() => sim.withdraw(mandate.id, BOB), /nothing left to withdraw/);
+    sim.withdraw(mandate.id);
+    assert.throws(() => sim.withdraw(mandate.id), /nothing left to withdraw/);
   });
 
   it('refuses revocation by a non-creator', () => {
     const { mandate, state } = makeMandate();
     const sim = new MandateSimulator(state);
     sim.setBlockTime(T0);
-    sim.createMandate(mandate.id, 50n * UNIT);
+    sim.createMandate(mandate.id, DEPOSITOR, 50n * UNIT);
     sim.privateState.mandates[mandate.id].secrets.creatorSecretKey = randomHex32();
     assert.throws(() => sim.revokeMandate(mandate.id), /not the creator of this mandate/);
   });
@@ -577,13 +583,129 @@ describe('witness isolation', () => {
   });
 });
 
-describe('funding an existing mandate', () => {
-  it('tops up the escrow', () => {
+
+describe('custody — only the funding wallet can be paid back', () => {
+  it('records the funding address in the public record', () => {
+    const { sim, mandate } = fundedSimulator();
+    assert.equal(recordOf(sim, mandate.id).creatorAddress, DEPOSITOR);
+  });
+
+  it('returns the balance to the funding address, not to the caller', () => {
+    const { sim, mandate } = fundedSimulator();
+    act(sim, mandate.id, ALICE, 10n * UNIT, T0 + 10);
+    sim.revokeMandate(mandate.id);
+
+    const refund = sim.withdraw(mandate.id);
+    assert.equal(refund, 30n * UNIT, 'the exact unspent remainder');
+    assert.equal(recordOf(sim, mandate.id).escrow, 0n);
+    // The destination is not a parameter of the circuit at all, so there is no
+    // argument through which a caller could nominate a different wallet.
+    assert.equal(sim.withdraw.length, 1, 'withdraw takes only the mandate id');
+  });
+
+  it('cannot be redirected even by someone holding the creator secret', () => {
+    // The strongest case: an attacker has fully compromised the creator's
+    // secret. They can trigger a withdrawal — and the money still goes home.
+    const { mandate, state } = makeMandate();
+    const sim = new MandateSimulator(state);
+    sim.setBlockTime(T0);
+    sim.createMandate(mandate.id, DEPOSITOR, 40n * UNIT);
+    sim.revokeMandate(mandate.id);
+
+    const before = recordOf(sim, mandate.id);
+    assert.equal(before.creatorAddress, DEPOSITOR);
+
+    sim.withdraw(mandate.id);
+
+    // The funding address was never writable, so it is unchanged and the
+    // attacker's own address never appears in the record.
+    const after = recordOf(sim, mandate.id);
+    assert.equal(after.creatorAddress, DEPOSITOR);
+    assert.notEqual(after.creatorAddress, ATTACKER);
+    assert.equal(after.escrow, 0n);
+  });
+
+  it('refuses a withdrawal from anyone without the creator secret', () => {
+    const { mandate, state } = makeMandate();
+    const sim = new MandateSimulator(state);
+    sim.setBlockTime(T0);
+    sim.createMandate(mandate.id, DEPOSITOR, 40n * UNIT);
+    sim.revokeMandate(mandate.id);
+
+    sim.privateState.mandates[mandate.id].secrets.creatorSecretKey = randomHex32();
+    assert.throws(() => sim.withdraw(mandate.id), /not the creator of this mandate/);
+    assert.equal(recordOf(sim, mandate.id).escrow, 40n * UNIT, 'no funds moved');
+  });
+
+  it('gives the agent no path to the escrow beyond a valid authorization', () => {
+    const { sim, mandate } = fundedSimulator();
+
+    // The agent holds its own key and the rules, but not the creator secret.
+    sim.privateState.mandates[mandate.id].secrets.creatorSecretKey = randomHex32();
+
+    // Each of the three creator-only circuits rejects on the authorization
+    // check, which the contract evaluates before any state precondition.
+    assert.throws(() => sim.revokeMandate(mandate.id), /not the creator of this mandate/);
+    assert.throws(() => sim.withdraw(mandate.id), /not the creator of this mandate/);
+    assert.throws(() => sim.fundMandate(mandate.id, UNIT), /only the creator can add funds/);
+    assert.equal(recordOf(sim, mandate.id).escrow, 40n * UNIT);
+  });
+
+  it('lets the creator reclaim the remainder after partial spending', () => {
+    const { sim, mandate } = fundedSimulator();
+    act(sim, mandate.id, ALICE, 3n * UNIT, T0 + 10);
+    act(sim, mandate.id, ALICE, 7n * UNIT, T0 + 20);
+    assert.equal(recordOf(sim, mandate.id).spent, 10n * UNIT);
+
+    sim.revokeMandate(mandate.id);
+    assert.equal(sim.withdraw(mandate.id), 30n * UNIT);
+  });
+
+  it('never lets an agent action exceed the escrow', () => {
+    const { sim, mandate } = fundedSimulator({ maxPerTransaction: 50n * UNIT }, 5n * UNIT);
+    assert.throws(
+      () => act(sim, mandate.id, ALICE, 6n * UNIT, T0 + 10),
+      /insufficient escrow balance/,
+    );
+    assert.equal(recordOf(sim, mandate.id).escrow, 5n * UNIT);
+  });
+
+  it('keeps the funding address stable across agent activity', () => {
+    const { sim, mandate } = fundedSimulator();
+    act(sim, mandate.id, ALICE, UNIT, T0 + 10);
+    act(sim, mandate.id, ALICE, UNIT, T0 + 20);
+    assert.equal(recordOf(sim, mandate.id).creatorAddress, DEPOSITOR);
+  });
+
+  it('conserves value: deposited always equals spent plus escrow plus reclaimed', () => {
+    const { sim, mandate } = fundedSimulator();
+    act(sim, mandate.id, ALICE, 4n * UNIT, T0 + 10);
+    act(sim, mandate.id, ALICE, 6n * UNIT, T0 + 20);
+
+    const mid = recordOf(sim, mandate.id);
+    assert.equal(mid.spent + mid.escrow, mid.deposited);
+
+    sim.revokeMandate(mandate.id);
+    const reclaimed = sim.withdraw(mandate.id);
+    const end = recordOf(sim, mandate.id);
+    assert.equal(end.spent + end.escrow + reclaimed, end.deposited);
+  });
+});
+
+describe('fundMandate — creator only', () => {
+  it('lets the creator top up a live mandate', () => {
     const { sim, mandate } = fundedSimulator({}, 10n * UNIT);
     sim.fundMandate(mandate.id, 5n * UNIT);
     const record = recordOf(sim, mandate.id);
     assert.equal(record.escrow, 15n * UNIT);
     assert.equal(record.deposited, 15n * UNIT);
+  });
+
+  it('refuses a top-up from anyone else', () => {
+    // A stranger topping up would silently widen what the agent can move.
+    const { sim, mandate } = fundedSimulator();
+    sim.privateState.mandates[mandate.id].secrets.creatorSecretKey = randomHex32();
+    assert.throws(() => sim.fundMandate(mandate.id, UNIT), /only the creator can add funds/);
   });
 
   it('refuses to fund a revoked mandate', () => {

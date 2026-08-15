@@ -11,13 +11,14 @@ const _descriptor_3 = __compactRuntime.CompactTypeBoolean;
 
 class _MandateRecord_0 {
   alignment() {
-    return _descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_1.alignment().concat(_descriptor_1.alignment().concat(_descriptor_1.alignment().concat(_descriptor_2.alignment().concat(_descriptor_1.alignment().concat(_descriptor_2.alignment().concat(_descriptor_3.alignment())))))))));
+    return _descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_1.alignment().concat(_descriptor_1.alignment().concat(_descriptor_1.alignment().concat(_descriptor_2.alignment().concat(_descriptor_1.alignment().concat(_descriptor_2.alignment().concat(_descriptor_3.alignment()))))))))));
   }
   fromValue(value_0) {
     return {
       commitment: _descriptor_0.fromValue(value_0),
       agentPublicKey: _descriptor_0.fromValue(value_0),
       creatorAuth: _descriptor_0.fromValue(value_0),
+      creatorAddress: _descriptor_0.fromValue(value_0),
       escrow: _descriptor_1.fromValue(value_0),
       deposited: _descriptor_1.fromValue(value_0),
       spent: _descriptor_1.fromValue(value_0),
@@ -28,7 +29,7 @@ class _MandateRecord_0 {
     }
   }
   toValue(value_0) {
-    return _descriptor_0.toValue(value_0.commitment).concat(_descriptor_0.toValue(value_0.agentPublicKey).concat(_descriptor_0.toValue(value_0.creatorAuth).concat(_descriptor_1.toValue(value_0.escrow).concat(_descriptor_1.toValue(value_0.deposited).concat(_descriptor_1.toValue(value_0.spent).concat(_descriptor_2.toValue(value_0.periodStart).concat(_descriptor_1.toValue(value_0.periodSpent).concat(_descriptor_2.toValue(value_0.actionCount).concat(_descriptor_3.toValue(value_0.revoked))))))))));
+    return _descriptor_0.toValue(value_0.commitment).concat(_descriptor_0.toValue(value_0.agentPublicKey).concat(_descriptor_0.toValue(value_0.creatorAuth).concat(_descriptor_0.toValue(value_0.creatorAddress).concat(_descriptor_1.toValue(value_0.escrow).concat(_descriptor_1.toValue(value_0.deposited).concat(_descriptor_1.toValue(value_0.spent).concat(_descriptor_2.toValue(value_0.periodStart).concat(_descriptor_1.toValue(value_0.periodSpent).concat(_descriptor_2.toValue(value_0.actionCount).concat(_descriptor_3.toValue(value_0.revoked)))))))))));
   }
 }
 
@@ -202,38 +203,46 @@ export class Contract {
         return { result: pureCircuits.deriveMandateCommitment(...args_1), context };
       },
       createMandate: (...args_1) => {
-        if (args_1.length !== 3) {
-          throw new __compactRuntime.CompactError(`createMandate: expected 3 arguments (as invoked from Typescript), received ${args_1.length}`);
+        if (args_1.length !== 4) {
+          throw new __compactRuntime.CompactError(`createMandate: expected 4 arguments (as invoked from Typescript), received ${args_1.length}`);
         }
         const contextOrig_0 = args_1[0];
         const id_0 = args_1[1];
-        const deposit_0 = args_1[2];
+        const creatorAddress_0 = args_1[2];
+        const deposit_0 = args_1[3];
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('createMandate',
                                      'argument 1 (as invoked from Typescript)',
-                                     'mandate.compact line 181 char 1',
+                                     'mandate.compact line 186 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(id_0.buffer instanceof ArrayBuffer && id_0.BYTES_PER_ELEMENT === 1 && id_0.length === 32)) {
           __compactRuntime.typeError('createMandate',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'mandate.compact line 181 char 1',
+                                     'mandate.compact line 186 char 1',
                                      'Bytes<32>',
                                      id_0)
         }
-        if (!(typeof(deposit_0) === 'bigint' && deposit_0 >= 0n && deposit_0 <= 340282366920938463463374607431768211455n)) {
+        if (!(creatorAddress_0.buffer instanceof ArrayBuffer && creatorAddress_0.BYTES_PER_ELEMENT === 1 && creatorAddress_0.length === 32)) {
           __compactRuntime.typeError('createMandate',
                                      'argument 2 (argument 3 as invoked from Typescript)',
-                                     'mandate.compact line 181 char 1',
+                                     'mandate.compact line 186 char 1',
+                                     'Bytes<32>',
+                                     creatorAddress_0)
+        }
+        if (!(typeof(deposit_0) === 'bigint' && deposit_0 >= 0n && deposit_0 <= 340282366920938463463374607431768211455n)) {
+          __compactRuntime.typeError('createMandate',
+                                     'argument 3 (argument 4 as invoked from Typescript)',
+                                     'mandate.compact line 186 char 1',
                                      'Uint<0..340282366920938463463374607431768211456>',
                                      deposit_0)
         }
         const context = { ...contextOrig_0, gasCost: __compactRuntime.emptyRunningCost() };
         const partialProofData = {
           input: {
-            value: _descriptor_0.toValue(id_0).concat(_descriptor_1.toValue(deposit_0)),
-            alignment: _descriptor_0.alignment().concat(_descriptor_1.alignment())
+            value: _descriptor_0.toValue(id_0).concat(_descriptor_0.toValue(creatorAddress_0).concat(_descriptor_1.toValue(deposit_0))),
+            alignment: _descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_1.alignment()))
           },
           output: undefined,
           publicTranscript: [],
@@ -242,6 +251,7 @@ export class Contract {
         const result_0 = this._createMandate_0(context,
                                                partialProofData,
                                                id_0,
+                                               creatorAddress_0,
                                                deposit_0);
         partialProofData.output = { value: _descriptor_0.toValue(result_0), alignment: _descriptor_0.alignment() };
         return { result: result_0, context: context, proofData: partialProofData, gasCost: context.gasCost };
@@ -256,21 +266,21 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('fundMandate',
                                      'argument 1 (as invoked from Typescript)',
-                                     'mandate.compact line 222 char 1',
+                                     'mandate.compact line 237 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(id_0.buffer instanceof ArrayBuffer && id_0.BYTES_PER_ELEMENT === 1 && id_0.length === 32)) {
           __compactRuntime.typeError('fundMandate',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'mandate.compact line 222 char 1',
+                                     'mandate.compact line 237 char 1',
                                      'Bytes<32>',
                                      id_0)
         }
         if (!(typeof(amount_0) === 'bigint' && amount_0 >= 0n && amount_0 <= 340282366920938463463374607431768211455n)) {
           __compactRuntime.typeError('fundMandate',
                                      'argument 2 (argument 3 as invoked from Typescript)',
-                                     'mandate.compact line 222 char 1',
+                                     'mandate.compact line 237 char 1',
                                      'Uint<0..340282366920938463463374607431768211456>',
                                      amount_0)
         }
@@ -303,35 +313,35 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('executeAction',
                                      'argument 1 (as invoked from Typescript)',
-                                     'mandate.compact line 256 char 1',
+                                     'mandate.compact line 274 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(id_0.buffer instanceof ArrayBuffer && id_0.BYTES_PER_ELEMENT === 1 && id_0.length === 32)) {
           __compactRuntime.typeError('executeAction',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'mandate.compact line 256 char 1',
+                                     'mandate.compact line 274 char 1',
                                      'Bytes<32>',
                                      id_0)
         }
         if (!(recipient_0.buffer instanceof ArrayBuffer && recipient_0.BYTES_PER_ELEMENT === 1 && recipient_0.length === 32)) {
           __compactRuntime.typeError('executeAction',
                                      'argument 2 (argument 3 as invoked from Typescript)',
-                                     'mandate.compact line 256 char 1',
+                                     'mandate.compact line 274 char 1',
                                      'Bytes<32>',
                                      recipient_0)
         }
         if (!(typeof(amount_0) === 'bigint' && amount_0 >= 0n && amount_0 <= 340282366920938463463374607431768211455n)) {
           __compactRuntime.typeError('executeAction',
                                      'argument 3 (argument 4 as invoked from Typescript)',
-                                     'mandate.compact line 256 char 1',
+                                     'mandate.compact line 274 char 1',
                                      'Uint<0..340282366920938463463374607431768211456>',
                                      amount_0)
         }
         if (!(typeof(now_0) === 'bigint' && now_0 >= 0n && now_0 <= 18446744073709551615n)) {
           __compactRuntime.typeError('executeAction',
                                      'argument 4 (argument 5 as invoked from Typescript)',
-                                     'mandate.compact line 256 char 1',
+                                     'mandate.compact line 274 char 1',
                                      'Uint<0..18446744073709551616>',
                                      now_0)
         }
@@ -363,14 +373,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('revokeMandate',
                                      'argument 1 (as invoked from Typescript)',
-                                     'mandate.compact line 348 char 1',
+                                     'mandate.compact line 367 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(id_0.buffer instanceof ArrayBuffer && id_0.BYTES_PER_ELEMENT === 1 && id_0.length === 32)) {
           __compactRuntime.typeError('revokeMandate',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'mandate.compact line 348 char 1',
+                                     'mandate.compact line 367 char 1',
                                      'Bytes<32>',
                                      id_0)
         }
@@ -389,47 +399,36 @@ export class Contract {
         return { result: result_0, context: context, proofData: partialProofData, gasCost: context.gasCost };
       },
       withdraw: (...args_1) => {
-        if (args_1.length !== 3) {
-          throw new __compactRuntime.CompactError(`withdraw: expected 3 arguments (as invoked from Typescript), received ${args_1.length}`);
+        if (args_1.length !== 2) {
+          throw new __compactRuntime.CompactError(`withdraw: expected 2 arguments (as invoked from Typescript), received ${args_1.length}`);
         }
         const contextOrig_0 = args_1[0];
         const id_0 = args_1[1];
-        const recipient_0 = args_1[2];
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('withdraw',
                                      'argument 1 (as invoked from Typescript)',
-                                     'mandate.compact line 377 char 1',
+                                     'mandate.compact line 407 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(id_0.buffer instanceof ArrayBuffer && id_0.BYTES_PER_ELEMENT === 1 && id_0.length === 32)) {
           __compactRuntime.typeError('withdraw',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'mandate.compact line 377 char 1',
+                                     'mandate.compact line 407 char 1',
                                      'Bytes<32>',
                                      id_0)
-        }
-        if (!(recipient_0.buffer instanceof ArrayBuffer && recipient_0.BYTES_PER_ELEMENT === 1 && recipient_0.length === 32)) {
-          __compactRuntime.typeError('withdraw',
-                                     'argument 2 (argument 3 as invoked from Typescript)',
-                                     'mandate.compact line 377 char 1',
-                                     'Bytes<32>',
-                                     recipient_0)
         }
         const context = { ...contextOrig_0, gasCost: __compactRuntime.emptyRunningCost() };
         const partialProofData = {
           input: {
-            value: _descriptor_0.toValue(id_0).concat(_descriptor_0.toValue(recipient_0)),
-            alignment: _descriptor_0.alignment().concat(_descriptor_0.alignment())
+            value: _descriptor_0.toValue(id_0),
+            alignment: _descriptor_0.alignment()
           },
           output: undefined,
           publicTranscript: [],
           privateTranscriptOutputs: []
         };
-        const result_0 = this._withdraw_0(context,
-                                          partialProofData,
-                                          id_0,
-                                          recipient_0);
+        const result_0 = this._withdraw_0(context, partialProofData, id_0);
         partialProofData.output = { value: _descriptor_1.toValue(result_0), alignment: _descriptor_1.alignment() };
         return { result: result_0, context: context, proofData: partialProofData, gasCost: context.gasCost };
       },
@@ -442,14 +441,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('discloseTotalSpendRespected',
                                      'argument 1 (as invoked from Typescript)',
-                                     'mandate.compact line 414 char 1',
+                                     'mandate.compact line 448 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(id_0.buffer instanceof ArrayBuffer && id_0.BYTES_PER_ELEMENT === 1 && id_0.length === 32)) {
           __compactRuntime.typeError('discloseTotalSpendRespected',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'mandate.compact line 414 char 1',
+                                     'mandate.compact line 448 char 1',
                                      'Bytes<32>',
                                      id_0)
         }
@@ -479,21 +478,21 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('discloseField',
                                      'argument 1 (as invoked from Typescript)',
-                                     'mandate.compact line 442 char 1',
+                                     'mandate.compact line 476 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(id_0.buffer instanceof ArrayBuffer && id_0.BYTES_PER_ELEMENT === 1 && id_0.length === 32)) {
           __compactRuntime.typeError('discloseField',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'mandate.compact line 442 char 1',
+                                     'mandate.compact line 476 char 1',
                                      'Bytes<32>',
                                      id_0)
         }
         if (!(typeof(kind_0) === 'bigint' && kind_0 >= 0n && kind_0 <= 255n)) {
           __compactRuntime.typeError('discloseField',
                                      'argument 2 (argument 3 as invoked from Typescript)',
-                                     'mandate.compact line 442 char 1',
+                                     'mandate.compact line 476 char 1',
                                      'Uint<0..256>',
                                      kind_0)
         }
@@ -805,7 +804,7 @@ export class Contract {
     if (!(typeof(result_0) === 'object' && typeof(result_0.maxTotalSpend) === 'bigint' && result_0.maxTotalSpend >= 0n && result_0.maxTotalSpend <= 340282366920938463463374607431768211455n && typeof(result_0.maxPerTransaction) === 'bigint' && result_0.maxPerTransaction >= 0n && result_0.maxPerTransaction <= 340282366920938463463374607431768211455n && typeof(result_0.validFrom) === 'bigint' && result_0.validFrom >= 0n && result_0.validFrom <= 18446744073709551615n && typeof(result_0.validUntil) === 'bigint' && result_0.validUntil >= 0n && result_0.validUntil <= 18446744073709551615n && typeof(result_0.periodSeconds) === 'bigint' && result_0.periodSeconds >= 0n && result_0.periodSeconds <= 18446744073709551615n && typeof(result_0.periodLimit) === 'bigint' && result_0.periodLimit >= 0n && result_0.periodLimit <= 340282366920938463463374607431768211455n && typeof(result_0.restrictRecipients) === 'boolean' && Array.isArray(result_0.allowedRecipients) && result_0.allowedRecipients.length === 8 && result_0.allowedRecipients.every((t) => t.buffer instanceof ArrayBuffer && t.BYTES_PER_ELEMENT === 1 && t.length === 32) && result_0.agentPublicKey.buffer instanceof ArrayBuffer && result_0.agentPublicKey.BYTES_PER_ELEMENT === 1 && result_0.agentPublicKey.length === 32)) {
       __compactRuntime.typeError('localRules',
                                  'return value',
-                                 'mandate.compact line 118 char 1',
+                                 'mandate.compact line 123 char 1',
                                  'struct MandateRules<maxTotalSpend: Uint<0..340282366920938463463374607431768211456>, maxPerTransaction: Uint<0..340282366920938463463374607431768211456>, validFrom: Uint<0..18446744073709551616>, validUntil: Uint<0..18446744073709551616>, periodSeconds: Uint<0..18446744073709551616>, periodLimit: Uint<0..340282366920938463463374607431768211456>, restrictRecipients: Boolean, allowedRecipients: Vector<8, Bytes<32>>, agentPublicKey: Bytes<32>>',
                                  result_0)
     }
@@ -823,7 +822,7 @@ export class Contract {
     if (!(result_0.buffer instanceof ArrayBuffer && result_0.BYTES_PER_ELEMENT === 1 && result_0.length === 32)) {
       __compactRuntime.typeError('localSalt',
                                  'return value',
-                                 'mandate.compact line 120 char 1',
+                                 'mandate.compact line 125 char 1',
                                  'Bytes<32>',
                                  result_0)
     }
@@ -841,7 +840,7 @@ export class Contract {
     if (!(result_0.buffer instanceof ArrayBuffer && result_0.BYTES_PER_ELEMENT === 1 && result_0.length === 32)) {
       __compactRuntime.typeError('localAgentSecretKey',
                                  'return value',
-                                 'mandate.compact line 122 char 1',
+                                 'mandate.compact line 127 char 1',
                                  'Bytes<32>',
                                  result_0)
     }
@@ -859,7 +858,7 @@ export class Contract {
     if (!(result_0.buffer instanceof ArrayBuffer && result_0.BYTES_PER_ELEMENT === 1 && result_0.length === 32)) {
       __compactRuntime.typeError('localCreatorSecretKey',
                                  'return value',
-                                 'mandate.compact line 124 char 1',
+                                 'mandate.compact line 129 char 1',
                                  'Bytes<32>',
                                  result_0)
     }
@@ -890,14 +889,15 @@ export class Contract {
                                                 partialProofData,
                                                 ((t1) => {
                                                   if (t1 > 18446744073709551615n) {
-                                                    throw new __compactRuntime.CompactError('mandate.compact line 164 char 22: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
+                                                    throw new __compactRuntime.CompactError('mandate.compact line 169 char 22: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
                                                   }
                                                   return t1;
                                                 })(now_0 + 300n)),
                             'Mandate: claimed timestamp is stale');
     return [];
   }
-  _createMandate_0(context, partialProofData, id_0, deposit_0) {
+  _createMandate_0(context, partialProofData, id_0, creatorAddress_0, deposit_0)
+  {
     const mandateId_0 = id_0;
     __compactRuntime.assert(!_descriptor_3.fromValue(__compactRuntime.queryLedgerState(context,
                                                                                        partialProofData,
@@ -941,6 +941,7 @@ export class Contract {
                                                                                   partialProofData,
                                                                                   id_0));
     const amount_0 = deposit_0;
+    const refundAddress_0 = creatorAddress_0;
     this._receiveUnshielded_0(context,
                               partialProofData,
                               this._nativeToken_0(),
@@ -948,6 +949,7 @@ export class Contract {
     const tmp_0 = { commitment: commitment_0,
                     agentPublicKey: agentPk_0,
                     creatorAuth: creatorAuth_0,
+                    creatorAddress: refundAddress_0,
                     escrow: amount_0,
                     deposited: amount_0,
                     spent: 0n,
@@ -1011,6 +1013,11 @@ export class Contract {
                                                                                                         alignment: _descriptor_0.alignment() } }] } },
                                                                              { popeq: { cached: false,
                                                                                         result: undefined } }]).value);
+    __compactRuntime.assert(this._equal_2(this._deriveCreatorAuth_0(this._localCreatorSecretKey_0(context,
+                                                                                                  partialProofData,
+                                                                                                  id_0)),
+                                          rec_0.creatorAuth),
+                            'Mandate: only the creator can add funds to this mandate');
     __compactRuntime.assert(!rec_0.revoked, 'Mandate: mandate has been revoked');
     __compactRuntime.assert(amount_0 > 0n,
                             'Mandate: amount must be greater than zero');
@@ -1022,17 +1029,18 @@ export class Contract {
     const tmp_0 = { commitment: rec_0.commitment,
                     agentPublicKey: rec_0.agentPublicKey,
                     creatorAuth: rec_0.creatorAuth,
+                    creatorAddress: rec_0.creatorAddress,
                     escrow:
                       ((t1) => {
                         if (t1 > 340282366920938463463374607431768211455n) {
-                          throw new __compactRuntime.CompactError('mandate.compact line 236 char 13: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 340282366920938463463374607431768211455');
+                          throw new __compactRuntime.CompactError('mandate.compact line 254 char 13: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 340282366920938463463374607431768211455');
                         }
                         return t1;
                       })(rec_0.escrow + value_0),
                     deposited:
                       ((t1) => {
                         if (t1 > 340282366920938463463374607431768211455n) {
-                          throw new __compactRuntime.CompactError('mandate.compact line 237 char 16: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 340282366920938463463374607431768211455');
+                          throw new __compactRuntime.CompactError('mandate.compact line 255 char 16: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 340282366920938463463374607431768211455');
                         }
                         return t1;
                       })(rec_0.deposited + value_0),
@@ -1104,11 +1112,11 @@ export class Contract {
     const timestamp_0 = now_0;
     const rules_0 = this._localRules_0(context, partialProofData, id_0);
     const salt_0 = this._localSalt_0(context, partialProofData, id_0);
-    __compactRuntime.assert(this._equal_2(this._deriveMandateCommitment_0(rules_0,
+    __compactRuntime.assert(this._equal_3(this._deriveMandateCommitment_0(rules_0,
                                                                           salt_0),
                                           rec_0.commitment),
                             'Mandate: rules do not open the on-chain commitment');
-    __compactRuntime.assert(this._equal_3(this._deriveAgentPublicKey_0(this._localAgentSecretKey_0(context,
+    __compactRuntime.assert(this._equal_4(this._deriveAgentPublicKey_0(this._localAgentSecretKey_0(context,
                                                                                                    partialProofData,
                                                                                                    id_0)),
                                           rec_0.agentPublicKey),
@@ -1163,6 +1171,7 @@ export class Contract {
     const tmp_0 = { commitment: rec_0.commitment,
                     agentPublicKey: rec_0.agentPublicKey,
                     creatorAuth: rec_0.creatorAuth,
+                    creatorAddress: rec_0.creatorAddress,
                     escrow:
                       (t_3 = rec_0.escrow,
                        (__compactRuntime.assert(t_3 >= value_0,
@@ -1172,7 +1181,7 @@ export class Contract {
                     spent:
                       ((t1) => {
                         if (t1 > 340282366920938463463374607431768211455n) {
-                          throw new __compactRuntime.CompactError('mandate.compact line 333 char 12: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 340282366920938463463374607431768211455');
+                          throw new __compactRuntime.CompactError('mandate.compact line 352 char 12: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 340282366920938463463374607431768211455');
                         }
                         return t1;
                       })(newSpent_0),
@@ -1181,14 +1190,14 @@ export class Contract {
                     periodSpent:
                       ((t1) => {
                         if (t1 > 340282366920938463463374607431768211455n) {
-                          throw new __compactRuntime.CompactError('mandate.compact line 335 char 27: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 340282366920938463463374607431768211455');
+                          throw new __compactRuntime.CompactError('mandate.compact line 354 char 27: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 340282366920938463463374607431768211455');
                         }
                         return t1;
                       })(newPeriodSpent_0),
                     actionCount:
                       ((t1) => {
                         if (t1 > 18446744073709551615n) {
-                          throw new __compactRuntime.CompactError('mandate.compact line 336 char 18: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
+                          throw new __compactRuntime.CompactError('mandate.compact line 355 char 18: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
                         }
                         return t1;
                       })(rec_0.actionCount + 1n),
@@ -1249,7 +1258,7 @@ export class Contract {
                                                                                                         alignment: _descriptor_0.alignment() } }] } },
                                                                              { popeq: { cached: false,
                                                                                         result: undefined } }]).value);
-    __compactRuntime.assert(this._equal_4(this._deriveCreatorAuth_0(this._localCreatorSecretKey_0(context,
+    __compactRuntime.assert(this._equal_5(this._deriveCreatorAuth_0(this._localCreatorSecretKey_0(context,
                                                                                                   partialProofData,
                                                                                                   id_0)),
                                           rec_0.creatorAuth),
@@ -1259,6 +1268,7 @@ export class Contract {
     const tmp_0 = { commitment: rec_0.commitment,
                     agentPublicKey: rec_0.agentPublicKey,
                     creatorAuth: rec_0.creatorAuth,
+                    creatorAddress: rec_0.creatorAddress,
                     escrow: rec_0.escrow,
                     deposited: rec_0.deposited,
                     spent: rec_0.spent,
@@ -1285,7 +1295,7 @@ export class Contract {
                                        { ins: { cached: true, n: 1 } }]);
     return [];
   }
-  _withdraw_0(context, partialProofData, id_0, recipient_0) {
+  _withdraw_0(context, partialProofData, id_0) {
     const mandateId_0 = id_0;
     __compactRuntime.assert(_descriptor_3.fromValue(__compactRuntime.queryLedgerState(context,
                                                                                       partialProofData,
@@ -1322,7 +1332,7 @@ export class Contract {
                                                                                                         alignment: _descriptor_0.alignment() } }] } },
                                                                              { popeq: { cached: false,
                                                                                         result: undefined } }]).value);
-    __compactRuntime.assert(this._equal_5(this._deriveCreatorAuth_0(this._localCreatorSecretKey_0(context,
+    __compactRuntime.assert(this._equal_6(this._deriveCreatorAuth_0(this._localCreatorSecretKey_0(context,
                                                                                                   partialProofData,
                                                                                                   id_0)),
                                           rec_0.creatorAuth),
@@ -1332,16 +1342,16 @@ export class Contract {
     let t_0;
     __compactRuntime.assert((t_0 = rec_0.escrow, t_0 > 0n),
                             'Mandate: nothing left to withdraw');
-    const to_0 = recipient_0;
     const refund_0 = rec_0.escrow;
     this._sendUnshielded_0(context,
                            partialProofData,
                            this._nativeToken_0(),
                            refund_0,
-                           this._right_0({ bytes: to_0 }));
+                           this._right_0({ bytes: rec_0.creatorAddress }));
     const tmp_0 = { commitment: rec_0.commitment,
                     agentPublicKey: rec_0.agentPublicKey,
                     creatorAuth: rec_0.creatorAuth,
+                    creatorAddress: rec_0.creatorAddress,
                     escrow: 0n,
                     deposited: rec_0.deposited,
                     spent: rec_0.spent,
@@ -1407,11 +1417,11 @@ export class Contract {
                                                                                         result: undefined } }]).value);
     const rules_0 = this._localRules_0(context, partialProofData, id_0);
     const salt_0 = this._localSalt_0(context, partialProofData, id_0);
-    __compactRuntime.assert(this._equal_6(this._deriveMandateCommitment_0(rules_0,
+    __compactRuntime.assert(this._equal_7(this._deriveMandateCommitment_0(rules_0,
                                                                           salt_0),
                                           rec_0.commitment),
                             'Mandate: rules do not open the on-chain commitment');
-    __compactRuntime.assert(this._equal_7(this._deriveCreatorAuth_0(this._localCreatorSecretKey_0(context,
+    __compactRuntime.assert(this._equal_8(this._deriveCreatorAuth_0(this._localCreatorSecretKey_0(context,
                                                                                                   partialProofData,
                                                                                                   id_0)),
                                           rec_0.creatorAuth),
@@ -1498,21 +1508,21 @@ export class Contract {
                                                                                         result: undefined } }]).value);
     const rules_0 = this._localRules_0(context, partialProofData, id_0);
     const salt_0 = this._localSalt_0(context, partialProofData, id_0);
-    __compactRuntime.assert(this._equal_8(this._deriveMandateCommitment_0(rules_0,
+    __compactRuntime.assert(this._equal_9(this._deriveMandateCommitment_0(rules_0,
                                                                           salt_0),
                                           rec_0.commitment),
                             'Mandate: rules do not open the on-chain commitment');
-    __compactRuntime.assert(this._equal_9(this._deriveCreatorAuth_0(this._localCreatorSecretKey_0(context,
-                                                                                                  partialProofData,
-                                                                                                  id_0)),
-                                          rec_0.creatorAuth),
+    __compactRuntime.assert(this._equal_10(this._deriveCreatorAuth_0(this._localCreatorSecretKey_0(context,
+                                                                                                   partialProofData,
+                                                                                                   id_0)),
+                                           rec_0.creatorAuth),
                             'Mandate: caller is not the creator of this mandate');
     const which_0 = kind_0;
     __compactRuntime.assert(which_0 >= 1n && which_0 <= 3n,
                             'Mandate: unknown disclosure field');
-    const revealed_0 = this._equal_10(which_0, 1n) ?
+    const revealed_0 = this._equal_11(which_0, 1n) ?
                        rules_0.maxTotalSpend :
-                       this._equal_11(which_0, 2n) ?
+                       this._equal_12(which_0, 2n) ?
                        rules_0.maxPerTransaction :
                        rules_0.validUntil;
     const tmp_0 = { mandateId: mandateId_0,
@@ -1571,13 +1581,13 @@ export class Contract {
     if (!x0.every((x, i) => y0[i] === x)) { return false; }
     return true;
   }
-  _folder_0(f, x, a0, a1) {
-    for (let i = 0; i < 8; i++) { x = f(x, a0[i], a1[i]); }
-    return x;
-  }
   _equal_4(x0, y0) {
     if (!x0.every((x, i) => y0[i] === x)) { return false; }
     return true;
+  }
+  _folder_0(f, x, a0, a1) {
+    for (let i = 0; i < 8; i++) { x = f(x, a0[i], a1[i]); }
+    return x;
   }
   _equal_5(x0, y0) {
     if (!x0.every((x, i) => y0[i] === x)) { return false; }
@@ -1600,10 +1610,14 @@ export class Contract {
     return true;
   }
   _equal_10(x0, y0) {
-    if (x0 !== y0) { return false; }
+    if (!x0.every((x, i) => y0[i] === x)) { return false; }
     return true;
   }
   _equal_11(x0, y0) {
+    if (x0 !== y0) { return false; }
+    return true;
+  }
+  _equal_12(x0, y0) {
     if (x0 !== y0) { return false; }
     return true;
   }
@@ -1671,7 +1685,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('member',
                                      'argument 1',
-                                     'mandate.compact line 110 char 1',
+                                     'mandate.compact line 115 char 1',
                                      'Bytes<32>',
                                      key_0)
         }
@@ -1700,7 +1714,7 @@ export function ledger(stateOrChargedState) {
         if (!(key_0.buffer instanceof ArrayBuffer && key_0.BYTES_PER_ELEMENT === 1 && key_0.length === 32)) {
           __compactRuntime.typeError('lookup',
                                      'argument 1',
-                                     'mandate.compact line 110 char 1',
+                                     'mandate.compact line 115 char 1',
                                      'Bytes<32>',
                                      key_0)
         }
@@ -1859,7 +1873,7 @@ export const pureCircuits = {
     if (!(secretKey_0.buffer instanceof ArrayBuffer && secretKey_0.BYTES_PER_ELEMENT === 1 && secretKey_0.length === 32)) {
       __compactRuntime.typeError('deriveAgentPublicKey',
                                  'argument 1',
-                                 'mandate.compact line 133 char 1',
+                                 'mandate.compact line 138 char 1',
                                  'Bytes<32>',
                                  secretKey_0)
     }
@@ -1873,7 +1887,7 @@ export const pureCircuits = {
     if (!(secretKey_0.buffer instanceof ArrayBuffer && secretKey_0.BYTES_PER_ELEMENT === 1 && secretKey_0.length === 32)) {
       __compactRuntime.typeError('deriveCreatorAuth',
                                  'argument 1',
-                                 'mandate.compact line 138 char 1',
+                                 'mandate.compact line 143 char 1',
                                  'Bytes<32>',
                                  secretKey_0)
     }
@@ -1888,14 +1902,14 @@ export const pureCircuits = {
     if (!(typeof(rules_0) === 'object' && typeof(rules_0.maxTotalSpend) === 'bigint' && rules_0.maxTotalSpend >= 0n && rules_0.maxTotalSpend <= 340282366920938463463374607431768211455n && typeof(rules_0.maxPerTransaction) === 'bigint' && rules_0.maxPerTransaction >= 0n && rules_0.maxPerTransaction <= 340282366920938463463374607431768211455n && typeof(rules_0.validFrom) === 'bigint' && rules_0.validFrom >= 0n && rules_0.validFrom <= 18446744073709551615n && typeof(rules_0.validUntil) === 'bigint' && rules_0.validUntil >= 0n && rules_0.validUntil <= 18446744073709551615n && typeof(rules_0.periodSeconds) === 'bigint' && rules_0.periodSeconds >= 0n && rules_0.periodSeconds <= 18446744073709551615n && typeof(rules_0.periodLimit) === 'bigint' && rules_0.periodLimit >= 0n && rules_0.periodLimit <= 340282366920938463463374607431768211455n && typeof(rules_0.restrictRecipients) === 'boolean' && Array.isArray(rules_0.allowedRecipients) && rules_0.allowedRecipients.length === 8 && rules_0.allowedRecipients.every((t) => t.buffer instanceof ArrayBuffer && t.BYTES_PER_ELEMENT === 1 && t.length === 32) && rules_0.agentPublicKey.buffer instanceof ArrayBuffer && rules_0.agentPublicKey.BYTES_PER_ELEMENT === 1 && rules_0.agentPublicKey.length === 32)) {
       __compactRuntime.typeError('deriveMandateCommitment',
                                  'argument 1',
-                                 'mandate.compact line 144 char 1',
+                                 'mandate.compact line 149 char 1',
                                  'struct MandateRules<maxTotalSpend: Uint<0..340282366920938463463374607431768211456>, maxPerTransaction: Uint<0..340282366920938463463374607431768211456>, validFrom: Uint<0..18446744073709551616>, validUntil: Uint<0..18446744073709551616>, periodSeconds: Uint<0..18446744073709551616>, periodLimit: Uint<0..340282366920938463463374607431768211456>, restrictRecipients: Boolean, allowedRecipients: Vector<8, Bytes<32>>, agentPublicKey: Bytes<32>>',
                                  rules_0)
     }
     if (!(salt_0.buffer instanceof ArrayBuffer && salt_0.BYTES_PER_ELEMENT === 1 && salt_0.length === 32)) {
       __compactRuntime.typeError('deriveMandateCommitment',
                                  'argument 2',
-                                 'mandate.compact line 144 char 1',
+                                 'mandate.compact line 149 char 1',
                                  'Bytes<32>',
                                  salt_0)
     }
