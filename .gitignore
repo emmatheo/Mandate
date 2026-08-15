@@ -1,0 +1,20 @@
+node_modules/
+.next/
+out/
+build/
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# Raw compiler output. The published artifacts (contract/artifacts and public/zk)
+# are committed instead, so a Vercel build never needs the Compact toolchain.
+contract/build/
+
+# Agent working directory: private mandate rules and secrets live here.
+.mandate/
+*.private-state.json
+
+.env
+.env.local
+.env*.local
+.DS_Store
