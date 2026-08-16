@@ -36,7 +36,7 @@ import {
   type FoundContract,
 } from '@midnight-ntwrk/midnight-js-contracts';
 import type { ConnectedAPI, InitialAPI } from '@midnight-ntwrk/dapp-connector-api';
-import { Contract } from '@mandate/contract';
+import { Contract, ledger as decodeLedger, type Ledger } from '@mandate/contract';
 
 import { bytesToHex, decodeUnshieldedAddress, hexToBytes } from './encoding';
 import { toRecordView } from './mandate';
@@ -371,6 +371,21 @@ export async function discloseFieldOnChain(
 // ---------------------------------------------------------------------------
 // Reading public state
 // ---------------------------------------------------------------------------
+
+/**
+ * Read the registry's current public state from the indexer.
+ *
+ * This is the authoritative view: escrow balances, spend totals and revocation
+ * status all come from here, never from anything the client remembers.
+ */
+export async function readRegistryLedger(
+  providers: MandateProviders,
+  contractAddress: string,
+): Promise<Ledger | undefined> {
+  const state = await providers.publicDataProvider.queryContractState(contractAddress);
+  if (!state) return undefined;
+  return decodeLedger(state.data);
+}
 
 /**
  * Read the public record for one mandate.

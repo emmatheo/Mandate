@@ -89,54 +89,72 @@ That second lock is what makes "only the wallet that deposited can withdraw" a p
 
 ## Try it
 
-### Locally, in about a minute
+### Run it against Midnight Preprod
+
+Mandate settles on **Midnight Preprod**. tNIGHT is the asset a mandate governs; tDUST pays the fees.
+
+**1. Get a wallet and test tokens**
+
+- Install the **Lace Midnight Preview** extension and switch it to **Preprod**.
+- Copy your **unshielded** address.
+- Request tokens from the faucet: <https://faucet.preprod.midnight.network/>
+- In Lace, complete the "Generate tDUST" / registration step so your tNIGHT starts producing spendable tDUST. Without tDUST every transaction fails at the fee stage.
+
+**2. Deploy the registry** (once per environment)
+
+```bash
+cp .env.example .env.local     # fill in the deployment-only variables
+npm run dev                    # serves the ZK keys the deploy script fetches
+npm run contract:deploy        # in a second terminal
+```
+
+It prints a contract address. Put it in `NEXT_PUBLIC_CONTRACT_ADDRESS`.
+
+**3. Run the app**
+
+```bash
+npm run dev                    # landing page at :3000, app at /app
+```
+
+Open `/app`, enter a private-state password (16+ characters — it encrypts your mandate rules and cannot be recovered), and connect Lace.
+
+### Verify it end to end
+
+Six steps. Each one is a real transaction on Preprod.
+
+| # | Action | What to expect |
+|---|---|---|
+| 1 | Create a mandate: deposit 10 tNIGHT, max total 10, max per transaction 2, allow-list your own second address | Lace prompts twice (prove, then sign). Escrow shows 10 tNIGHT. |
+| 2 | Agents → pay **1 tNIGHT** to the allow-listed address | Authorized. Escrow drops to 9. Recipient balance rises. |
+| 3 | Agents → pay **5 tNIGHT** (over the per-transaction limit) | Refused, naming the per-transaction limit. No transaction is submitted. |
+| 4 | Agents → pay **1 tNIGHT** to an address *not* on the allow-list | Refused, naming the allow-list. |
+| 5 | Overview → **Revoke**, confirm | Mandate shows Revoked. A further agent action is refused. |
+| 6 | Overview → **Withdraw**, confirm | 9 tNIGHT returns **to the funding wallet**. No destination is offered, because the contract accepts none. |
+
+The custody claim to check at step 6: the funds go back to the wallet that funded the mandate at step 1, and there is no field anywhere to send them elsewhere.
+
+### Locally, without a wallet
 
 ```bash
 npm install
 npm test                  # 53 tests against the real compiled circuits
-npm run agent -- demo     # the whole lifecycle, end to end
-npm run dev               # landing page at http://localhost:3000, app at /app
+npm run agent -- demo     # the whole lifecycle, end to end, in the terminal
 ```
 
-`npm run agent -- demo` runs the full script: a private mandate created and funded, only the commitment on chain, a compliant payment executed, an over-limit payment and a payment to an unlisted recipient both refused, the daily cap enforced, revocation, reclaim, and both disclosure circuits. Step 5 also bypasses the agent and calls the circuit directly, so you can see the refusal is an unsatisfiable constraint rather than a UI check.
-
-The dashboard runs the same compiled circuits **in your browser** against an in-memory ledger. Every authorization and refusal you see is real; nothing is settled on a chain until you connect a wallet.
+The app also has a **demo mode**, reachable from the connect screen behind an explicit confirmation. It runs the same compiled circuits against an in-memory ledger with no wallet and no chain, and is labelled as such everywhere it is visible. It exists to show the authorization logic without a funded wallet — it is never the default and nothing in it settles anywhere.
 
 ### Deploy to Vercel
 
-The app is a standard Next.js project with no backend, so a normal import works:
-
 1. Push this repository to GitHub.
 2. In Vercel, **Add New → Project** and import it.
-3. Accept the defaults (framework Next.js, build `next build`) and deploy.
+3. Set `NEXT_PUBLIC_CONTRACT_ADDRESS` to your deployed registry address.
+4. Accept the remaining defaults (framework Next.js, build `next build`) and deploy.
 
-Verified from a clean checkout of only the committed files: `npm install` then `next build` succeeds and every route is static, so there is no server runtime to configure.
+Verified from a clean checkout of only the committed files: `npm ci` then `next build` succeeds and every route is static, so there is no server runtime to configure.
 
-No environment variables are required — it will come up in local-demo mode. To point it at a deployed registry:
-
-| Variable | Purpose | Example |
-|---|---|---|
-| `NEXT_PUBLIC_NETWORK_ID` | Network the wallet must be on | `preprod` |
-| `NEXT_PUBLIC_CONTRACT_ADDRESS` | Address of the deployed Mandate registry | `0200…` |
-
-The ZK proving and verifier keys are committed under `public/zk/` (~44 MB) and served as static assets, so a Vercel build never needs the Compact toolchain.
+The ZK proving and verifier keys are committed under `public/zk/` (~47 MB) and served as static assets, so a Vercel build never needs the Compact toolchain.
 
 **Proving happens in the wallet.** The DApp asks Lace for a proving provider via `getProvingProvider` and hands it the ZK artifacts; the proof is produced on the user's own machine. There is no proof server for this app to host, which is what makes a static deploy sufficient.
-
-## Getting testnet tokens
-
-- **tNIGHT** is the asset the agent spends under the mandate.
-- **tDUST** pays transaction fees.
-
-1. Install the **Lace Midnight Preview** wallet.
-2. Switch it to the **Preprod** network.
-3. Copy your **unshielded** address.
-4. Request tokens from the faucet: <https://faucet.preprod.midnight.network/>
-5. In Lace, complete the "Generate tDUST" / registration flow so your tNIGHT starts producing spendable tDUST.
-
-These are test tokens with no real value. Do not use mainnet tokens for development.
-
-> **Note on units.** Amounts throughout are integers in the token's smallest unit, with `NIGHT_DECIMALS = 6` in [`lib/encoding.ts`](lib/encoding.ts). If a faucet payout does not line up with what the UI displays, that constant is the single place to correct.
 
 ## Rebuilding the contract
 
@@ -175,7 +193,7 @@ Being precise about this matters more than sounding finished.
 - The dashboard renders only real state. There is no seeded mandate, no sample balance and no placeholder activity anywhere in the app: with nothing created, every panel shows an empty state.
 
 **Not yet exercised:**
-- The live-network path in [`lib/client.ts`](lib/client.ts) — wallet connection, transaction balancing, submission, indexer reads — is written against the current `midnight-js` and DApp-connector APIs but has **not** been run against a deployed contract on Preprod. It needs a funded Lace wallet and network access, neither of which was available in the environment this was built in. Expect to iterate on it during first deployment.
+- The Preprod path — wallet connection, transaction balancing, submission, indexer reads, and the deploy script — is written against the current `midnight-js` and DApp-connector APIs but has **not** been executed against a live network. The build environment had no route to Preprod (every endpoint blocked at the egress proxy) and no browser for the Lace extension, so the six-step verification above is the step that closes this gap.
 - No registry has been deployed, so there is no contract address to publish yet.
 
 ## Scope
