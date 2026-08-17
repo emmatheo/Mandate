@@ -156,16 +156,23 @@ function Sidebar({
 
   return (
     <aside className="db-side">
-      <Link href="/" className="db-brand">
+      <Link href="/" className="db-brand" aria-label="Mandate — back to the landing page">
         <Logo size={28} />
         <span className="db-brand-name">MANDATE</span>
       </Link>
       <div className="db-brand-tag">Secure. Controlled. Verifiable.</div>
 
+      {/*
+        Every nav button carries its label as `aria-label` and `title`, not only
+        as visible text: below 900px the sidebar collapses to icons and the text
+        is hidden, which would otherwise leave six unnamed buttons.
+      */}
       <nav className="db-nav">
         <button
           onClick={() => onGo('overview')}
           aria-current={section === 'overview' ? 'page' : undefined}
+          aria-label="Dashboard"
+          title="Dashboard"
         >
           <Grid />
           <span>Dashboard</span>
@@ -178,6 +185,8 @@ function Sidebar({
           }}
           aria-current={section === 'mandates' ? 'page' : undefined}
           aria-expanded={mandatesOpen}
+          aria-label="My Mandates"
+          title="My Mandates"
         >
           <Shield />
           <span>My Mandates</span>
@@ -208,6 +217,8 @@ function Sidebar({
         <button
           onClick={() => onGo('agents')}
           aria-current={section === 'agents' ? 'page' : undefined}
+          aria-label="Agents"
+          title="Agents"
         >
           <Users />
           <span>Agents</span>
@@ -215,6 +226,8 @@ function Sidebar({
         <button
           onClick={() => onGo('history')}
           aria-current={section === 'history' ? 'page' : undefined}
+          aria-label="History"
+          title="History"
         >
           <Pulse />
           <span>History</span>
@@ -222,6 +235,8 @@ function Sidebar({
         <button
           onClick={() => onGo('disclosure')}
           aria-current={section === 'disclosure' ? 'page' : undefined}
+          aria-label="Disclosure"
+          title="Disclosure"
         >
           <Eye />
           <span>Disclosure</span>
@@ -229,6 +244,8 @@ function Sidebar({
         <button
           onClick={() => onGo('settings')}
           aria-current={section === 'settings' ? 'page' : undefined}
+          aria-label="Settings"
+          title="Settings"
         >
           <Cog />
           <span>Settings</span>
@@ -677,7 +694,7 @@ function MandateRow({ app, mandate }: { app: App; mandate: StoredMandate }) {
           </div>
         </td>
 
-        <td>
+        <td data-label="Authorized agent">
           {/* No avatar here: in a six-column table the glyph costs more width
               than it earns, and the key is the identity that matters. */}
           <div className="tbl-key" title={mandate.spec.agentPublicKey}>
@@ -690,14 +707,16 @@ function MandateRow({ app, mandate }: { app: App; mandate: StoredMandate }) {
           </div>
         </td>
 
-        <td>{record.revoked ? <Pill tone="bad">Revoked</Pill> : <Pill tone="ok">Active</Pill>}</td>
+        <td data-label="Status">
+          {record.revoked ? <Pill tone="bad">Revoked</Pill> : <Pill tone="ok">Active</Pill>}
+        </td>
 
-        <td className="tbl-num">
+        <td className="tbl-num" data-label="Remaining balance">
           <div className="tbl-amount">{formatAmount(record.escrow)}</div>
           <div className="tbl-sub">{SPEND_TOKEN}</div>
         </td>
 
-        <td>
+        <td data-label="Next limit check">
           <div title={limit.detail}>{limit.value}</div>
           <div className="tbl-sub">
             {mandate.spec.period === 'none'
@@ -706,7 +725,7 @@ function MandateRow({ app, mandate }: { app: App; mandate: StoredMandate }) {
           </div>
         </td>
 
-        <td className="tbl-actions">
+        <td className="tbl-actions" data-label="Actions">
           <div className="tbl-btns">
             <button
               className="btn btn-xs"

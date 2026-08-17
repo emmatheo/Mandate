@@ -1530,6 +1530,61 @@ textarea {
     left: 0;
     width: min(330px, calc(100vw - 40px));
   }
+
+  /*
+   * On a phone the six-column table becomes one stacked card per mandate.
+   * Left as a wide table it would push its row actions — revoke and reclaim —
+   * behind a sideways scroll, which is exactly where they must not be.
+   */
+  .tbl {
+    display: block;
+    min-width: 0;
+    table-layout: auto;
+  }
+  .tbl thead {
+    display: none;
+  }
+  .tbl tbody,
+  .tbl tr,
+  .tbl td {
+    display: block;
+    width: auto;
+  }
+  .tbl-row {
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .tbl tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .tbl td {
+    border-bottom: 0;
+    padding: 5px 16px;
+  }
+  .tbl td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 640;
+    color: var(--text-faint);
+    margin-bottom: 3px;
+  }
+  .tbl-num,
+  .tbl-actions {
+    text-align: left;
+  }
+  .tbl-btns {
+    justify-content: flex-start;
+  }
+  .tbl .meter-sm {
+    max-width: none;
+  }
+  .tbl-panel-row td {
+    padding: 8px 16px 16px;
+    border-bottom: 0;
+  }
 }
 
 @media (max-width: 460px) {
