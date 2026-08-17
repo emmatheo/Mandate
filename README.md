@@ -128,8 +128,8 @@ Six steps. Each one is a real transaction on Preprod.
 | 2 | Agents → pay **1 tNIGHT** to the allow-listed address | Authorized. Escrow drops to 9. Recipient balance rises. |
 | 3 | Agents → pay **5 tNIGHT** (over the per-transaction limit) | Refused, naming the per-transaction limit. No transaction is submitted. |
 | 4 | Agents → pay **1 tNIGHT** to an address *not* on the allow-list | Refused, naming the allow-list. |
-| 5 | Overview → **Revoke**, confirm | Mandate shows Revoked. A further agent action is refused. |
-| 6 | Overview → **Withdraw**, confirm | 9 tNIGHT returns **to the funding wallet**. No destination is offered, because the contract accepts none. |
+| 5 | Dashboard → the mandate's row → **Revoke**, confirm | Mandate shows Revoked. A further agent action is refused. |
+| 6 | Dashboard → the mandate's row → **Withdraw**, confirm | 9 tNIGHT returns **to the funding wallet**. No destination is offered, because the contract accepts none. |
 
 The custody claim to check at step 6: the funds go back to the wallet that funded the mandate at step 1, and there is no field anywhere to send them elsewhere.
 
@@ -174,11 +174,11 @@ contract/src/mandate.compact   the contract — the whole product is here
 contract/artifacts/            generated TypeScript (committed)
 public/zk/                     proving + verifier keys, ZKIR (committed)
 lib/                           domain model, rule engine, witnesses, network client
-lib/mandate.test.ts            43 tests against the real circuits
+lib/mandate.test.ts            53 tests against the real circuits
 lib/simulator.ts               in-process execution of the compiled circuits
 agent/                         the agent, its executors, and the demo CLI
 app/page.tsx                   landing page (static, no wallet or WebAssembly)
-app/app/page.tsx               the dashboard
+app/app/dashboard.tsx          the dashboard
 ```
 
 ## What is real, and what is not
@@ -189,7 +189,7 @@ Being precise about this matters more than sounding finished.
 - The Compact contract compiles and every circuit is genuine. The proving keys in this repository were produced by `compactc`, not stubbed.
 - All authorization logic, escrow accounting, revocation, withdrawal and selective disclosure are enforced by circuit constraints. Nothing about verification or money movement is mocked.
 - 53 tests execute the compiled circuits in-process against real ledger state, including adversarial custody cases: an attacker holding the creator's secret still cannot redirect a withdrawal, the agent has no path to the escrow outside a valid authorization, and value is conserved across deposit, spend and reclaim. The dashboard executes the same circuits in the browser.
-- A 44-check click-through audit drives every button and error path in a real browser: input validation, both refusal types, revoke, reclaim, all three disclosure buttons, and the agent being blocked after revocation.
+- A click-through audit drives every button and error path in a real browser: input validation, both refusal types, top-up, revoke, reclaim, all three disclosure buttons, and the agent being blocked after revocation.
 - The dashboard renders only real state. There is no seeded mandate, no sample balance and no placeholder activity anywhere in the app: with nothing created, every panel shows an empty state.
 
 **Not yet exercised:**

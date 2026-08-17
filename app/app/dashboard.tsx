@@ -12,7 +12,7 @@ import {
   truncateAddress,
 } from '../../lib/encoding';
 import { deriveAgentPublicKey } from '../../lib/mandate';
-import type { PeriodKind, StoredMandate } from '../../lib/types';
+import { PERIOD_SECONDS, type PeriodKind, type StoredMandate } from '../../lib/types';
 import {
   DisclosureItem,
   EmptyState,
@@ -26,6 +26,10 @@ import {
 } from '../components';
 import {
   Ban,
+  Chevron,
+  Coins,
+  Cog,
+  Copy,
   Download,
   Eye,
   Grid,
@@ -33,9 +37,11 @@ import {
   Logo,
   Plus,
   Pulse,
+  Search,
   Send,
   Shield,
   Users,
+  Wallet,
 } from '../icons';
 import { ConnectGate } from '../connect';
 import {
@@ -45,32 +51,20 @@ import {
   SPEND_TOKEN,
 } from '../../lib/network';
 import type { ActionResult } from '../session';
-import { DEMO_NETWORK_ID, useSession } from '../session';
+import { useSession } from '../session';
 
-type Section = 'overview' | 'mandates' | 'agents' | 'activity' | 'disclosure';
+type Section = 'overview' | 'mandates' | 'agents' | 'history' | 'disclosure' | 'settings';
+/** Which mandates the "My Mandates" screen is showing. */
+type Filter = 'all' | 'active' | 'revoked';
 type App = ReturnType<typeof useSession>;
 
 const DAY = 86_400;
 
-const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
-  { key: 'overview', label: 'Overview', icon: <Grid /> },
-  { key: 'mandates', label: 'Mandates', icon: <Shield /> },
-  { key: 'agents', label: 'Agents', icon: <Users /> },
-  { key: 'activity', label: 'Activity', icon: <Pulse /> },
-  { key: 'disclosure', label: 'Disclosure', icon: <Eye /> },
-];
-
-const SECTION_TITLES: Record<Section, { title: string; subtitle: string }> = {
-  overview: { title: 'Dashboard', subtitle: 'Monitor and manage your mandates with confidence.' },
-  mandates: { title: 'Mandates', subtitle: 'Define the rules, fund the escrow, and see exactly what becomes public.' },
-  agents: { title: 'Agents', subtitle: 'Each mandate is bound to one agent identity. Only that agent can act under it.' },
-  activity: { title: 'Activity', subtitle: 'Every action proposed under your mandates, and the rule that decided it.' },
-  disclosure: { title: 'Selective disclosure', subtitle: 'Prove one fact to a third party without opening anything else.' },
-};
-
 export function Dashboard() {
   const app = useSession();
   const [section, setSection] = useState<Section>('overview');
+  const [filter, setFilter] = useState<Filter>('all');
+  const [query, setQuery] = useState('');
 
   // Nothing in here works without a wallet, so the connection is dealt with
   // first rather than failing on the first click.
@@ -78,42 +72,14 @@ export function Dashboard() {
     return <ConnectGate session={app} />;
   }
 
+  const go = (next: Section, nextFilter: Filter = 'all') => {
+    setSection(next);
+    setFilter(nextFilter);
+  };
+
   return (
     <div className="db">
-      <aside className="db-side">
-        <Link href="/" className="db-brand">
-          <Logo size={28} />
-          <span className="db-brand-name">MANDATE</span>
-        </Link>
-        <div className="db-brand-tag">Secure. Controlled. Verifiable.</div>
-
-        <nav className="db-nav">
-          {NAV.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setSection(item.key)}
-              aria-current={section === item.key ? 'page' : undefined}
-              title={item.label}
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
-
-        <div className="db-side-foot" title="Mandate rules and secrets never leave this browser">
-          <span className="tile tile-sm" style={{ width: 30, height: 30 }}>
-            <Shield size={15} />
-          </span>
-          <div className="txt">
-            <div className="lbl">Keys stay local</div>
-            <div className="sub">
-              <span className="dot" style={{ color: 'var(--green)' }} />
-              Never leave this device
-            </div>
-          </div>
-        </div>
-      </aside>
+      <Sidebar section={section} filter={filter} onGo={go} />
 
       <div className="db-main">
         {app.mode === 'demo' && (
@@ -127,41 +93,43 @@ export function Dashboard() {
         )}
 
         <header className="db-top">
-          <div>
-            <h1>{SECTION_TITLES[section].title}</h1>
-            <p>{SECTION_TITLES[section].subtitle}</p>
-          </div>
-          <div className="db-chips">
-            {app.balances && (
-              <span className="db-chip">
-                <span className="bal">
-                  <span className="bal-value">{formatAmount(app.balances.night)}</span>
-                  <span className="bal-label">{SPEND_TOKEN}</span>
-                </span>
-                <span style={{ color: 'var(--border-strong)' }}>|</span>
-                <span className="bal">
-                  <span className="bal-value">{formatAmount(app.balances.dust)}</span>
-                  <span className="bal-label">{FEE_TOKEN}</span>
-                </span>
-              </span>
+          <label className="db-search">
+            <Search size={16} />
+            <input
+              type="text"
+              value={query}
+              placeholder="Search mandates, agents and activity"
+              aria-label="Search mandates, agents and activity"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            {query !== '' && (
+              <button type="button" className="db-search-clear" onClick={() => setQuery('')}>
+                Clear
+              </button>
             )}
+          </label>
+
+          <div className="db-chips">
+            <NetworkMenu app={app} />
             <SessionChip address={app.fundingAddress} demo={app.mode === 'demo'} />
-            <NetworkChip demo={app.mode === 'demo'} />
           </div>
         </header>
 
         {app.busyLabel && (
-          <div style={{ padding: '12px 30px 0' }}>
+          <div style={{ padding: '16px 30px 0' }}>
             <Notice tone="info">{app.busyLabel}</Notice>
           </div>
         )}
 
         <div className="db-body">
-          {section === 'overview' && <Overview app={app} onGo={setSection} />}
-          {section === 'mandates' && <Mandates app={app} />}
-          {section === 'agents' && <Agents app={app} />}
-          {section === 'activity' && <Activity app={app} />}
-          {section === 'disclosure' && <Disclosure app={app} />}
+          {section === 'overview' && <Overview app={app} query={query} onGo={go} />}
+          {section === 'mandates' && (
+            <MandatesSection app={app} query={query} filter={filter} onFilter={setFilter} />
+          )}
+          {section === 'agents' && <AgentsSection app={app} query={query} />}
+          {section === 'history' && <HistorySection app={app} query={query} />}
+          {section === 'disclosure' && <DisclosureSection app={app} />}
+          {section === 'settings' && <SettingsSection app={app} />}
         </div>
       </div>
     </div>
@@ -169,15 +137,120 @@ export function Dashboard() {
 }
 
 // ---------------------------------------------------------------------------
-// Top bar
+// Shell
 // ---------------------------------------------------------------------------
 
-/**
- * Identifies the current session.
- *
- * With no wallet connected there is no address to show, and inventing one would
- * be exactly the thing this product exists to make impossible. It says so instead.
- */
+function Sidebar({
+  section,
+  filter,
+  onGo,
+}: {
+  section: Section;
+  filter: Filter;
+  onGo: (section: Section, filter?: Filter) => void;
+}) {
+  // "My Mandates" opens itself when you are inside it, and can be folded away
+  // when you are not.
+  const [open, setOpen] = useState(true);
+  const mandatesOpen = open || section === 'mandates';
+
+  return (
+    <aside className="db-side">
+      <Link href="/" className="db-brand">
+        <Logo size={28} />
+        <span className="db-brand-name">MANDATE</span>
+      </Link>
+      <div className="db-brand-tag">Secure. Controlled. Verifiable.</div>
+
+      <nav className="db-nav">
+        <button
+          onClick={() => onGo('overview')}
+          aria-current={section === 'overview' ? 'page' : undefined}
+        >
+          <Grid />
+          <span>Dashboard</span>
+        </button>
+
+        <button
+          onClick={() => {
+            if (section === 'mandates') setOpen((value) => !value);
+            else onGo('mandates', 'all');
+          }}
+          aria-current={section === 'mandates' ? 'page' : undefined}
+          aria-expanded={mandatesOpen}
+        >
+          <Shield />
+          <span>My Mandates</span>
+          <span className={`db-caret ${mandatesOpen ? 'db-caret-open' : ''}`}>
+            <Chevron size={13} />
+          </span>
+        </button>
+
+        {mandatesOpen && (
+          <div className="db-sub">
+            {/*
+              Only the two states the contract actually has. A "paused" filter
+              would be a tab that can never contain anything: revocation is
+              permanent by design, so there is nothing in between.
+            */}
+            {(['all', 'active', 'revoked'] as Filter[]).map((key) => (
+              <button
+                key={key}
+                onClick={() => onGo('mandates', key)}
+                aria-current={section === 'mandates' && filter === key ? 'page' : undefined}
+              >
+                {key === 'all' ? 'All' : key === 'active' ? 'Active' : 'Revoked'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <button
+          onClick={() => onGo('agents')}
+          aria-current={section === 'agents' ? 'page' : undefined}
+        >
+          <Users />
+          <span>Agents</span>
+        </button>
+        <button
+          onClick={() => onGo('history')}
+          aria-current={section === 'history' ? 'page' : undefined}
+        >
+          <Pulse />
+          <span>History</span>
+        </button>
+        <button
+          onClick={() => onGo('disclosure')}
+          aria-current={section === 'disclosure' ? 'page' : undefined}
+        >
+          <Eye />
+          <span>Disclosure</span>
+        </button>
+        <button
+          onClick={() => onGo('settings')}
+          aria-current={section === 'settings' ? 'page' : undefined}
+        >
+          <Cog />
+          <span>Settings</span>
+        </button>
+      </nav>
+
+      <div className="db-side-foot" title="Mandate rules and secrets never leave this browser">
+        <span className="tile tile-sm" style={{ width: 30, height: 30 }}>
+          <Shield size={15} />
+        </span>
+        <div className="txt">
+          <div className="lbl">Keys stay local</div>
+          <div className="sub">
+            <span className="dot" style={{ color: 'var(--green)' }} />
+            Never leave this device
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
 /** The address that funds every mandate and receives every reclaim. */
 function SessionChip({ address, demo }: { address: string; demo: boolean }) {
   return (
@@ -195,41 +268,186 @@ function SessionChip({ address, demo }: { address: string; demo: boolean }) {
   );
 }
 
-function NetworkChip({ demo }: { demo: boolean }) {
+/**
+ * The network control.
+ *
+ * It opens rather than switches: Preprod is pinned in `lib/network.ts` and the
+ * app refuses any other network, so a dropdown offering alternatives would be
+ * offering something that does not exist. What it shows instead is everything
+ * about the connection worth checking.
+ */
+function NetworkMenu({ app }: { app: App }) {
+  const [open, setOpen] = useState(false);
+  const demo = app.mode === 'demo';
+
   return (
-    <span className="db-chip">
-      <span
-        className="dot"
-        style={{ color: demo ? 'var(--amber)' : 'var(--green)' }}
-        aria-hidden
-      />
-      {demo ? 'Demo — no chain' : NETWORK_LABEL}
-    </span>
+    <div className="db-pop-wrap">
+      <button
+        className="db-chip db-chip-btn"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        <span className="dot" style={{ color: demo ? 'var(--amber)' : 'var(--green)' }} aria-hidden />
+        {demo ? 'Demo — no chain' : NETWORK_LABEL}
+        <Chevron size={13} />
+      </button>
+
+      {open && (
+        <div className="db-pop" role="dialog" aria-label="Network">
+          <div className="db-pop-title">Connection</div>
+          <dl className="kv kv-tight">
+            <dt>Network</dt>
+            <dd>{demo ? 'Demo — nothing settles' : NETWORK_LABEL}</dd>
+            <dt>Spend asset</dt>
+            <dd>{SPEND_TOKEN}</dd>
+            <dt>Fee asset</dt>
+            <dd>{FEE_TOKEN}</dd>
+            <dt>Registry</dt>
+            <dd>
+              {app.registryAddress ? (
+                <Hash value={app.registryAddress} chars={14} />
+              ) : (
+                'not configured'
+              )}
+            </dd>
+            <dt>Wallet</dt>
+            <dd>
+              <span className="mono">
+                {app.fundingAddress ? truncateAddress(app.fundingAddress, 12, 6) : '—'}
+              </span>
+            </dd>
+          </dl>
+          {!demo && (
+            <div className="btn-row" style={{ marginTop: 14 }}>
+              <button className="btn btn-sm" onClick={() => void app.refreshBalances()}>
+                Refresh balances
+              </button>
+              <a className="btn btn-sm" href={FAUCET_URL} target="_blank" rel="noreferrer">
+                Faucet
+              </a>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PageTitle({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="db-page-head">
+      <h1>{title}</h1>
+      <p>{subtitle}</p>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Overview
+// Shared derivations
 // ---------------------------------------------------------------------------
 
-function Overview({ app, onGo }: { app: App; onGo: (s: Section) => void }) {
-  // Revoked mandates stay on this screen. A revoked mandate can still hold an
-  // unspent balance, and reclaiming it is the whole point of revoking — hiding
-  // the card would strand the funds.
-  const mandates = useMemo(
-    () =>
-      [...app.mandates].sort((a, b) => {
-        const ra = app.records[a.id]?.revoked ? 1 : 0;
-        const rb = app.records[b.id]?.revoked ? 1 : 0;
-        return ra - rb;
-      }),
-    [app.mandates, app.records],
+function labelFor(app: App, mandateId: string): string {
+  return app.mandates.find((m) => m.id === mandateId)?.spec.label ?? 'unknown mandate';
+}
+
+/** Free-text search across the fields a user would actually recognise. */
+function matches(mandate: StoredMandate, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (q === '') return true;
+  return (
+    mandate.spec.label.toLowerCase().includes(q) ||
+    mandate.spec.agentPublicKey.toLowerCase().includes(q) ||
+    mandate.id.toLowerCase().includes(q)
   );
+}
+
+/**
+ * Sort revoked mandates last but never hide them: a revoked mandate can still
+ * hold an unspent balance, and reclaiming it is the whole point of revoking.
+ */
+function useMandateList(app: App, query: string, filter: Filter = 'all'): StoredMandate[] {
+  return useMemo(() => {
+    const list = app.mandates.filter((mandate) => {
+      if (!matches(mandate, query)) return false;
+      const revoked = app.records[mandate.id]?.revoked ?? false;
+      if (filter === 'active') return !revoked;
+      if (filter === 'revoked') return revoked;
+      return true;
+    });
+    return list.sort((a, b) => {
+      const ra = app.records[a.id]?.revoked ? 1 : 0;
+      const rb = app.records[b.id]?.revoked ? 1 : 0;
+      return ra - rb;
+    });
+  }, [app.mandates, app.records, filter, query]);
+}
+
+function shortDuration(seconds: number): string {
+  if (seconds <= 0) return 'now';
+  if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))}m`;
+  if (seconds < DAY) return `${Math.round(seconds / 3600)}h`;
+  return `${Math.round(seconds / DAY)}d`;
+}
+
+/**
+ * When this mandate's next limit boundary falls.
+ *
+ * A rolling window rolls at `periodStart + period`, and `periodStart` is zero
+ * until the first payment. Without a rolling limit the only time boundary is
+ * the mandate's own expiry.
+ */
+function nextLimitCheck(
+  mandate: StoredMandate,
+  periodStart: bigint,
+): { value: string; detail: string } {
+  const now = Math.floor(Date.now() / 1000);
+  const { period, validUntil } = mandate.spec;
+
+  if (period !== 'none') {
+    if (periodStart === 0n) {
+      return { value: `On first payment`, detail: `${period} limit window has not opened yet` };
+    }
+    const rollsAt = Number(periodStart + PERIOD_SECONDS[period]);
+    if (rollsAt <= now) {
+      return { value: 'Window open', detail: `${period} limit resets on the next payment` };
+    }
+    return {
+      value: `in ${shortDuration(rollsAt - now)}`,
+      detail: `${period} limit resets ${new Date(rollsAt * 1000).toLocaleString()}`,
+    };
+  }
+
+  if (validUntil <= now) {
+    return { value: 'Expired', detail: `Expired ${new Date(validUntil * 1000).toLocaleString()}` };
+  }
+  return {
+    value: `Expires in ${shortDuration(validUntil - now)}`,
+    detail: `Valid until ${new Date(validUntil * 1000).toLocaleString()}`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard overview
+// ---------------------------------------------------------------------------
+
+function Overview({
+  app,
+  query,
+  onGo,
+}: {
+  app: App;
+  query: string;
+  onGo: (section: Section, filter?: Filter) => void;
+}) {
+  const mandates = useMandateList(app, query);
+  const blocked = app.activity.filter((entry) => entry.outcome !== 'executed').length;
 
   return (
     <>
+      <PageTitle title="Dashboard Overview" subtitle="Your secure AI spending control center." />
+
       {app.mode === 'chain' && app.balances && app.balances.dust === 0n && (
-        <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 22 }}>
           <Notice tone="warn">
             <div>
               <strong>No spendable {FEE_TOKEN}.</strong> Every transaction needs {FEE_TOKEN} for
@@ -244,15 +462,51 @@ function Overview({ app, onGo }: { app: App; onGo: (s: Section) => void }) {
         </div>
       )}
 
-      <div className="db-cols">
+      <div className="db-sec-label">Quick stats</div>
+      <div className="db-stats">
+        <Stat
+          icon={<Shield size={17} />}
+          label="Active mandates"
+          value={String(app.totals.active)}
+          sub={
+            app.mandates.length === app.totals.active
+              ? 'none revoked'
+              : `${app.mandates.length - app.totals.active} revoked`
+          }
+        />
+        <Stat
+          icon={<Coins size={17} />}
+          label="Total in escrow"
+          value={formatAmount(app.totals.escrow)}
+          unit={SPEND_TOKEN}
+          sub="held by the contract, spendable only under proof"
+        />
+        <Stat
+          icon={<Send size={17} />}
+          label="Released to agents"
+          value={formatAmount(app.totals.spent)}
+          unit={SPEND_TOKEN}
+          sub={`${app.activity.filter((e) => e.outcome === 'executed').length} authorized payments`}
+        />
+        <Stat
+          icon={<Ban size={17} />}
+          label="Blocked attempts"
+          value={String(blocked)}
+          sub={blocked === 0 ? 'no rule has been tested yet' : 'refused before any funds moved'}
+        />
+      </div>
+
+      <div className="db-cols db-cols-wide">
         <div>
           <div className="db-sec-head">
             <div>
               <h2>
                 Active mandates
-                {mandates.length > 0 && <span className="db-count">{mandates.length}</span>}
+                {app.totals.active > 0 && <span className="db-count">{app.totals.active}</span>}
               </h2>
-              <p>Track balances, limits and the agent authorized on each.</p>
+              {/* Revoked mandates stay in the table below: one can still hold an
+                  unspent balance, and reclaiming it is the point of revoking. */}
+              <p>Every mandate you hold, its agent, and what is left to spend.</p>
             </div>
             <button className="btn btn-primary btn-sm" onClick={() => onGo('mandates')}>
               <Plus size={15} />
@@ -260,31 +514,24 @@ function Overview({ app, onGo }: { app: App; onGo: (s: Section) => void }) {
             </button>
           </div>
 
-          {mandates.length === 0 ? (
-            <EmptyState
-              title="No mandates yet"
-              body="A mandate gives one agent bounded spending authority under rules only you can read. Create one to begin."
-              action={
+          <MandateTable
+            app={app}
+            mandates={mandates}
+            emptyTitle={query.trim() === '' ? 'No mandates yet' : 'No mandates match that search'}
+            emptyBody={
+              query.trim() === ''
+                ? 'A mandate gives one agent bounded spending authority under rules only you can read. Create one to begin.'
+                : 'Nothing here matches. Clear the search to see every mandate.'
+            }
+            emptyAction={
+              query.trim() === '' ? (
                 <button className="btn btn-primary" onClick={() => onGo('mandates')}>
                   <Plus size={15} />
                   Create a mandate
                 </button>
-              }
-            />
-          ) : (
-            <div className="db-grid">
-              {mandates.map((mandate) => (
-                <MandateCard key={mandate.id} app={app} mandate={mandate} />
-              ))}
-            </div>
-          )}
-
-          {mandates.length > 0 && (
-            <div className="foot-note">
-              <Ban size={14} />
-              Revoking a mandate is irreversible and immediately cancels all future authorizations.
-            </div>
-          )}
+              ) : undefined
+            }
+          />
         </div>
 
         <div className="card">
@@ -294,10 +541,8 @@ function Overview({ app, onGo }: { app: App; onGo: (s: Section) => void }) {
                 <Pulse size={16} />
                 Recent agent activity
               </div>
-              <p className="card-sub">Real-time activity from authorized agents.</p>
+              <p className="card-sub">Every action an agent proposed, authorized or refused.</p>
             </div>
-            {/* No refresh control here: the feed updates as actions happen, and
-                an icon that looks clickable but is not would be a lie. */}
             {app.activity.length > 0 && <Pill tone="ok">Live</Pill>}
           </div>
 
@@ -308,219 +553,370 @@ function Overview({ app, onGo }: { app: App; onGo: (s: Section) => void }) {
           ) : (
             <>
               <div className="feed">
-                {app.activity.slice(0, 6).map((entry) => (
+                {app.activity.slice(0, 7).map((entry) => (
                   <FeedItem key={entry.id} entry={entry} label={labelFor(app, entry.mandateId)} />
                 ))}
               </div>
-              {app.activity.length > 6 && (
+              {app.activity.length > 7 && (
                 <button
                   className="btn btn-sm btn-block"
                   style={{ marginTop: 16 }}
-                  onClick={() => onGo('activity')}
+                  onClick={() => onGo('history')}
                 >
-                  View all activity
+                  View full history
                 </button>
               )}
             </>
           )}
         </div>
       </div>
-
-      <div className="db-strip">
-        <div className="db-strip-main">
-          <span className="tile">
-            <Shield size={20} />
-          </span>
-          <div>
-            <h3>Your mandates are enforced by cryptography, not by policy.</h3>
-            <p>
-              Rules never leave this device · Every payment verified by zero-knowledge proof ·
-              Revocable at any time
-            </p>
-          </div>
-        </div>
-        <Link href="/#security" className="btn btn-sm">
-          How this is secured
-        </Link>
-      </div>
     </>
   );
 }
 
-function labelFor(app: App, mandateId: string): string {
-  return app.mandates.find((m) => m.id === mandateId)?.spec.label ?? 'unknown mandate';
-}
-
-function MandateCard({ app, mandate }: { app: App; mandate: StoredMandate }) {
-  const record = app.records[mandate.id];
-  const [note, setNote] = useState<ActionResult | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [askReclaim, setAskReclaim] = useState(false);
-
-  if (!record) return null;
-
-  // Progress is against the deposit, which is the money actually at stake.
-  const used = record.deposited > 0n ? Number((record.spent * 100n) / record.deposited) : 0;
-
+function Stat({
+  icon,
+  label,
+  value,
+  unit,
+  sub,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  unit?: string;
+  sub: string;
+}) {
   return (
-    <div className="card m-card">
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <span className="tile">
-          <Shield size={20} />
-        </span>
-        {record.revoked ? <Pill tone="bad">Revoked</Pill> : <Pill tone="ok">Active</Pill>}
+    <div className="stat">
+      <div className="stat-top">
+        <span className="stat-label">{label}</span>
+        <span className="tile tile-xs">{icon}</span>
       </div>
-
-      <div className="m-name">{mandate.spec.label}</div>
-
-      <div className="m-amount">
-        {formatAmount(record.escrow)}
-        <span className="m-amount-unit">tNIGHT</span>
+      <div className="stat-value">
+        {value}
+        {unit && <span className="stat-unit">{unit}</span>}
       </div>
-      <div className="m-amount-label">Remaining balance</div>
-      <div className="m-amount-of">of {formatToken(record.deposited)} deposited</div>
-
-      <div className="meter" role="presentation">
-        <div className="meter-fill" style={{ width: `${Math.min(100, used)}%` }} />
-      </div>
-
-      {/*
-        The spend limit is a private rule. Showing it here is safe because this
-        screen renders from local state on the owner's own device — it is never
-        read back from the chain, where it does not exist.
-      */}
-      <div className="m-row">
-        <span>Max spend limit</span>
-        <span>{formatToken(mandate.spec.maxTotalSpend)}</span>
-      </div>
-      <div className="m-row">
-        <span>Released so far</span>
-        <span>{formatToken(record.spent)}</span>
-      </div>
-
-      <div className="divider" style={{ margin: '14px 0' }} />
-
-      <div className="label" style={{ fontSize: 12 }}>
-        Authorized agent
-      </div>
-      <div className="m-agent">
-        <span className="m-agent-avatar" aria-hidden />
-        <div>
-          <div className="m-agent-key">{truncateAddress(mandate.spec.agentPublicKey, 8, 4)}</div>
-          <div className="m-agent-role">
-            {record.actionCount === 0n
-              ? 'No actions yet'
-              : `${record.actionCount} action${record.actionCount === 1n ? '' : 's'} authorized`}
-          </div>
-        </div>
-      </div>
-
-      <div className="m-row" style={{ marginTop: 12 }}>
-        <span>Reclaims to</span>
-        <span className="mono" title={record.creatorAddress}>
-          {truncateAddress(record.creatorAddress, 8, 4)}
-        </span>
-      </div>
-
-      <div className="m-actions">
-        <button
-          className="btn btn-danger btn-sm"
-          disabled={record.revoked}
-          title={
-            confirming
-              ? 'Click again to revoke permanently'
-              : 'Permanently stop this agent and unlock the balance for reclaim'
-          }
-          onClick={() => {
-            if (!confirming) {
-              setConfirming(true);
-              return;
-            }
-            setConfirming(false);
-            void app.revoke(mandate.id).then(setNote);
-          }}
-        >
-          <Ban size={14} />
-          {confirming ? 'Confirm' : 'Revoke'}
-        </button>
-        <button
-          className="btn btn-primary btn-sm"
-          disabled={!record.revoked || record.escrow === 0n}
-          title={
-            record.revoked
-              ? 'Return the unspent balance to an address you control'
-              : 'Revoke the mandate before reclaiming'
-          }
-          onClick={() => setAskReclaim(true)}
-        >
-          <Download size={14} />
-          Withdraw
-        </button>
-      </div>
-
-      {/*
-        The destination is not asked for, because the contract does not accept
-        one: the balance always returns to the address that funded the mandate.
-        Showing that address is the honest way to confirm the action.
-      */}
-      {confirming && !record.revoked && (
-        <div style={{ marginTop: 14 }}>
-          <Notice tone="warn">
-            Revoking is permanent. The agent will be unable to authorize anything further, and the
-            remaining {formatToken(record.escrow)} becomes reclaimable by you. Click Confirm to
-            proceed.
-          </Notice>
-        </div>
-      )}
-
-      {askReclaim && record.revoked && (
-        <div style={{ marginTop: 16 }}>
-          <Notice tone="info">
-            <div>
-              <strong>{formatToken(record.escrow)}</strong> will be returned to the address that
-              funded this mandate:
-              <br />
-              <span className="mono">{truncateAddress(record.creatorAddress, 16, 8)}</span>
-              <br />
-              The contract accepts no other destination, so this cannot be redirected.
-            </div>
-          </Notice>
-          <div className="btn-row" style={{ marginTop: 12 }}>
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={() => {
-                void app.withdraw(mandate.id).then(setNote);
-                setAskReclaim(false);
-              }}
-            >
-              Confirm withdrawal
-            </button>
-            <button className="btn btn-sm" onClick={() => setAskReclaim(false)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {note && (
-        <div style={{ marginTop: 16 }}>
-          <Notice tone={note.ok ? 'ok' : 'bad'}>{note.message}</Notice>
-        </div>
-      )}
+      <div className="stat-sub">{sub}</div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Mandates — create and inspect
+// The mandate table
 // ---------------------------------------------------------------------------
 
-function Mandates({ app }: { app: App }) {
+function MandateTable({
+  app,
+  mandates,
+  emptyTitle,
+  emptyBody,
+  emptyAction,
+}: {
+  app: App;
+  mandates: StoredMandate[];
+  emptyTitle: string;
+  emptyBody: string;
+  emptyAction?: React.ReactNode;
+}) {
+  if (mandates.length === 0) {
+    return <EmptyState title={emptyTitle} body={emptyBody} action={emptyAction} />;
+  }
+
   return (
-    <div className="db-cols">
-      <CreateForm app={app} />
-      <MandateDetails app={app} />
+    <div className="tbl-wrap">
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th>Mandate name</th>
+            <th>Authorized agent</th>
+            <th>Status</th>
+            <th className="tbl-num">Remaining balance</th>
+            <th>Next limit check</th>
+            <th className="tbl-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {mandates.map((mandate) => (
+            <MandateRow key={mandate.id} app={app} mandate={mandate} />
+          ))}
+        </tbody>
+      </table>
     </div>
+  );
+}
+
+type RowPanel = 'fund' | 'revoke' | 'withdraw' | null;
+
+function MandateRow({ app, mandate }: { app: App; mandate: StoredMandate }) {
+  const record = app.records[mandate.id];
+  const [panel, setPanel] = useState<RowPanel>(null);
+  const [topUp, setTopUp] = useState('');
+  const [note, setNote] = useState<ActionResult | null>(null);
+
+  if (!record) return null;
+
+  const limit = nextLimitCheck(mandate, record.periodStart);
+  // Progress is against the deposit, which is the money actually at stake.
+  const used = record.deposited > 0n ? Number((record.spent * 100n) / record.deposited) : 0;
+  const toggle = (next: RowPanel) => {
+    setNote(null);
+    setPanel((current) => (current === next ? null : next));
+  };
+
+  return (
+    <>
+      <tr className={record.revoked ? 'tbl-row tbl-row-off' : 'tbl-row'}>
+        <td>
+          <div className="tbl-name">{mandate.spec.label}</div>
+          <div className="tbl-sub">
+            {formatToken(record.spent)} of {formatToken(record.deposited)} released
+          </div>
+          <div className="meter meter-sm" role="presentation">
+            <div className="meter-fill" style={{ width: `${Math.min(100, used)}%` }} />
+          </div>
+        </td>
+
+        <td>
+          {/* No avatar here: in a six-column table the glyph costs more width
+              than it earns, and the key is the identity that matters. */}
+          <div className="tbl-key" title={mandate.spec.agentPublicKey}>
+            {truncateAddress(mandate.spec.agentPublicKey, 8, 4)}
+          </div>
+          <div className="tbl-sub">
+            {record.actionCount === 0n
+              ? 'no actions yet'
+              : `${record.actionCount} action${record.actionCount === 1n ? '' : 's'}`}
+          </div>
+        </td>
+
+        <td>{record.revoked ? <Pill tone="bad">Revoked</Pill> : <Pill tone="ok">Active</Pill>}</td>
+
+        <td className="tbl-num">
+          <div className="tbl-amount">{formatAmount(record.escrow)}</div>
+          <div className="tbl-sub">{SPEND_TOKEN}</div>
+        </td>
+
+        <td>
+          <div title={limit.detail}>{limit.value}</div>
+          <div className="tbl-sub">
+            {mandate.spec.period === 'none'
+              ? 'no rolling limit'
+              : `${formatAmount(mandate.spec.periodLimit)} ${SPEND_TOKEN} / ${mandate.spec.period}`}
+          </div>
+        </td>
+
+        <td className="tbl-actions">
+          <div className="tbl-btns">
+            <button
+              className="btn btn-xs"
+              disabled={record.revoked}
+              title={
+                record.revoked
+                  ? 'A revoked mandate cannot be topped up'
+                  : 'Add more funds to this escrow'
+              }
+              onClick={() => toggle('fund')}
+            >
+              <Plus size={13} />
+              Top up
+            </button>
+            <button
+              className="btn btn-danger btn-xs"
+              disabled={record.revoked}
+              title="Permanently stop this agent and unlock the balance for reclaim"
+              onClick={() => toggle('revoke')}
+            >
+              <Ban size={13} />
+              Revoke
+            </button>
+            <button
+              className="btn btn-primary btn-xs"
+              disabled={!record.revoked || record.escrow === 0n}
+              title={
+                record.revoked
+                  ? 'Return the unspent balance to the wallet that funded it'
+                  : 'Revoke the mandate before reclaiming'
+              }
+              onClick={() => toggle('withdraw')}
+            >
+              <Download size={13} />
+              Withdraw
+            </button>
+          </div>
+        </td>
+      </tr>
+
+      {(panel !== null || note !== null) && (
+        <tr className="tbl-panel-row">
+          <td colSpan={6}>
+            <div className="tbl-panel">
+              {panel === 'fund' && (
+                <div className="tbl-panel-body">
+                  <Notice tone="info">
+                    Topping up widens how much this agent can move, up to the mandate&rsquo;s own
+                    total limit of {formatToken(mandate.spec.maxTotalSpend)}. Only you can do it —
+                    the contract requires the creator secret.
+                  </Notice>
+                  <div className="tbl-panel-form">
+                    <Field label={`Amount (${SPEND_TOKEN})`}>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={topUp}
+                        placeholder="0.00"
+                        onChange={(event) => setTopUp(event.target.value)}
+                      />
+                    </Field>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        let amount: bigint;
+                        try {
+                          amount = parseAmount(topUp);
+                        } catch (error) {
+                          setNote({ ok: false, message: (error as Error).message });
+                          return;
+                        }
+                        if (amount <= 0n) {
+                          setNote({ ok: false, message: 'Enter an amount greater than zero.' });
+                          return;
+                        }
+                        setPanel(null);
+                        setTopUp('');
+                        void app.fund(mandate.id, amount).then(setNote);
+                      }}
+                    >
+                      Deposit
+                    </button>
+                    <button className="btn btn-sm" onClick={() => setPanel(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {panel === 'revoke' && (
+                <div className="tbl-panel-body">
+                  <Notice tone="warn">
+                    Revoking is permanent. The agent will be unable to authorize anything further,
+                    and the remaining {formatToken(record.escrow)} becomes reclaimable by you.
+                  </Notice>
+                  <div className="btn-row">
+                    <button
+                      className="btn btn-danger btn-sm"
+                      onClick={() => {
+                        setPanel(null);
+                        void app.revoke(mandate.id).then(setNote);
+                      }}
+                    >
+                      Confirm revoke
+                    </button>
+                    <button className="btn btn-sm" onClick={() => setPanel(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/*
+                The destination is not asked for, because the contract does not
+                accept one: the balance always returns to the address that funded
+                the mandate. Showing that address is the honest way to confirm.
+              */}
+              {panel === 'withdraw' && (
+                <div className="tbl-panel-body">
+                  <Notice tone="info">
+                    <div>
+                      <strong>{formatToken(record.escrow)}</strong> will be returned to the wallet
+                      that funded this mandate:
+                      <br />
+                      <span className="mono">{truncateAddress(record.creatorAddress, 20, 10)}</span>
+                      <br />
+                      The withdrawal circuit accepts no other destination, so this cannot be
+                      redirected.
+                    </div>
+                  </Notice>
+                  <div className="btn-row">
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        setPanel(null);
+                        void app.withdraw(mandate.id).then(setNote);
+                      }}
+                    >
+                      Confirm withdrawal
+                    </button>
+                    <button className="btn btn-sm" onClick={() => setPanel(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {note && <Notice tone={note.ok ? 'ok' : 'bad'}>{note.message}</Notice>}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// My Mandates
+// ---------------------------------------------------------------------------
+
+function MandatesSection({
+  app,
+  query,
+  filter,
+  onFilter,
+}: {
+  app: App;
+  query: string;
+  filter: Filter;
+  onFilter: (filter: Filter) => void;
+}) {
+  const mandates = useMandateList(app, query, filter);
+
+  return (
+    <>
+      <PageTitle
+        title="My Mandates"
+        subtitle="Define the rules, fund the escrow, and see exactly what becomes public."
+      />
+
+      <div className="db-tabs">
+        {(['all', 'active', 'revoked'] as Filter[]).map((key) => (
+          <button
+            key={key}
+            className={filter === key ? 'db-tab db-tab-on' : 'db-tab'}
+            onClick={() => onFilter(key)}
+          >
+            {key === 'all' ? 'All' : key === 'active' ? 'Active' : 'Revoked'}
+          </button>
+        ))}
+      </div>
+
+      <MandateTable
+        app={app}
+        mandates={mandates}
+        emptyTitle={
+          filter === 'revoked' ? 'No revoked mandates' : 'No mandates here yet'
+        }
+        emptyBody={
+          filter === 'revoked'
+            ? 'Revoked mandates appear here, so their unspent balance can still be reclaimed.'
+            : 'A mandate gives one agent bounded spending authority under rules only you can read. Create one below.'
+        }
+      />
+
+      <div className="db-cols" style={{ marginTop: 26 }}>
+        <CreateForm app={app} />
+        <MandateDetails app={app} query={query} />
+      </div>
+    </>
   );
 }
 
@@ -673,7 +1069,7 @@ function CreateForm({ app }: { app: App }) {
             onChange={(e) => setLabel(e.target.value)}
           />
         </Field>
-        <Field label="Deposit (tNIGHT)" hint="Public — funds move on a public ledger.">
+        <Field label={`Deposit (${SPEND_TOKEN})`} hint="Public — funds move on a public ledger.">
           <input
             type="text"
             inputMode="decimal"
@@ -683,7 +1079,7 @@ function CreateForm({ app }: { app: App }) {
             required
           />
         </Field>
-        <Field label="Max total spend (tNIGHT)" hint="Private.">
+        <Field label={`Max total spend (${SPEND_TOKEN})`} hint="Private.">
           <input
             type="text"
             inputMode="decimal"
@@ -693,7 +1089,7 @@ function CreateForm({ app }: { app: App }) {
             required
           />
         </Field>
-        <Field label="Max per transaction (tNIGHT)" hint="Private.">
+        <Field label={`Max per transaction (${SPEND_TOKEN})`} hint="Private.">
           <input
             type="text"
             inputMode="decimal"
@@ -710,7 +1106,7 @@ function CreateForm({ app }: { app: App }) {
             <option value="weekly">Weekly</option>
           </select>
         </Field>
-        <Field label="Rolling limit amount (tNIGHT)" hint="Private.">
+        <Field label={`Rolling limit amount (${SPEND_TOKEN})`} hint="Private.">
           <input
             type="text"
             inputMode="decimal"
@@ -826,8 +1222,10 @@ function CreateForm({ app }: { app: App }) {
   );
 }
 
-function MandateDetails({ app }: { app: App }) {
-  if (app.mandates.length === 0) {
+function MandateDetails({ app, query }: { app: App; query: string }) {
+  const mandates = useMandateList(app, query);
+
+  if (mandates.length === 0) {
     return (
       <div className="card">
         <div className="card-head">
@@ -857,7 +1255,7 @@ function MandateDetails({ app }: { app: App }) {
         </div>
       </div>
 
-      {app.mandates.map((mandate) => {
+      {mandates.map((mandate) => {
         const record = app.records[mandate.id];
         return (
           <div key={mandate.id} style={{ marginBottom: 24 }}>
@@ -918,7 +1316,8 @@ function MandateDetails({ app }: { app: App }) {
 // Agents
 // ---------------------------------------------------------------------------
 
-function Agents({ app }: { app: App }) {
+function AgentsSection({ app, query }: { app: App; query: string }) {
+  const mandates = useMandateList(app, query);
   const [mandateId, setMandateId] = useState('');
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
@@ -926,7 +1325,7 @@ function Agents({ app }: { app: App }) {
   const [last, setLast] = useState<ActionResult | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const selected = app.mandates.find((m) => m.id === mandateId) ?? app.mandates[0];
+  const selected = app.mandates.find((m) => m.id === mandateId) ?? mandates[0];
 
   async function propose(event: React.FormEvent) {
     event.preventDefault();
@@ -960,179 +1359,209 @@ function Agents({ app }: { app: App }) {
     }
   }
 
-  if (app.mandates.length === 0) {
-    return (
-      <EmptyState
-        title="No agents authorized"
-        body="An agent becomes authorized when you bind its public key to a mandate. Create a mandate to authorize one."
-      />
-    );
-  }
-
   return (
-    <div className="db-cols">
-      <form className="card" onSubmit={propose}>
-        <div className="card-head">
-          <div>
-            <div className="card-title">
-              <span className="tile tile-sm">
-                <Send size={16} />
-              </span>
-              Propose an action
+    <>
+      <PageTitle
+        title="Agents"
+        subtitle="Each mandate is bound to one agent identity. Only that agent can act under it."
+      />
+
+      {app.mandates.length === 0 ? (
+        <EmptyState
+          title="No agents authorized"
+          body="An agent becomes authorized when you bind its public key to a mandate. Create a mandate to authorize one."
+        />
+      ) : (
+        <div className="db-cols">
+          <form className="card" onSubmit={propose}>
+            <div className="card-head">
+              <div>
+                <div className="card-title">
+                  <span className="tile tile-sm">
+                    <Send size={16} />
+                  </span>
+                  Propose an action
+                </div>
+                <p className="card-sub">
+                  The agent checks the action against the rules it holds, then proves compliance in
+                  zero knowledge. Break a rule and the proof is unsatisfiable — the funds cannot
+                  move, whatever the agent intends.
+                </p>
+              </div>
             </div>
-            <p className="card-sub">
-              The agent checks the action against the rules it holds, then proves compliance in
-              zero knowledge. Break a rule and the proof is unsatisfiable — the funds cannot move,
-              whatever the agent intends.
-            </p>
-          </div>
-        </div>
 
-        <div className="form-grid">
-          <Field label="Mandate">
-            <select value={selected?.id ?? ''} onChange={(e) => setMandateId(e.target.value)}>
-              {app.mandates.map((mandate) => (
-                <option key={mandate.id} value={mandate.id}>
-                  {mandate.spec.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Amount (tNIGHT)">
-            <input
-              type="text"
-              inputMode="decimal"
-              value={amount}
-              placeholder="0.00"
-              onChange={(e) => setAmount(e.target.value)}
-              required
-            />
-          </Field>
-          <Field label="Recipient" hint="Checked against the private allow-list in-circuit.">
-            <input
-              type="text"
-              className="mono"
-              value={recipient}
-              placeholder="Recipient address"
-              onChange={(e) => setRecipient(e.target.value)}
-              required
-            />
-          </Field>
-          <Field label="Reference" hint="Local only. Never leaves this browser.">
-            <input
-              type="text"
-              value={memo}
-              placeholder="e.g. Invoice #1041"
-              onChange={(e) => setMemo(e.target.value)}
-            />
-          </Field>
-        </div>
+            <div className="form-grid">
+              <Field label="Mandate">
+                <select value={selected?.id ?? ''} onChange={(e) => setMandateId(e.target.value)}>
+                  {app.mandates.map((mandate) => (
+                    <option key={mandate.id} value={mandate.id}>
+                      {mandate.spec.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={`Amount (${SPEND_TOKEN})`}>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={amount}
+                  placeholder="0.00"
+                  onChange={(e) => setAmount(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Recipient" hint="Checked against the private allow-list in-circuit.">
+                <input
+                  type="text"
+                  className="mono"
+                  value={recipient}
+                  placeholder="Recipient address"
+                  onChange={(e) => setRecipient(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Reference" hint="Local only. Never leaves this browser.">
+                <input
+                  type="text"
+                  value={memo}
+                  placeholder="e.g. Invoice #1041"
+                  onChange={(e) => setMemo(e.target.value)}
+                />
+              </Field>
+            </div>
 
-        <div className="btn-row" style={{ marginTop: 20 }}>
-          <button type="submit" className="btn btn-primary" disabled={busy}>
-            {busy ? 'Proving…' : 'Prove and submit'}
-          </button>
-        </div>
+            <div className="btn-row" style={{ marginTop: 20 }}>
+              <button type="submit" className="btn btn-primary" disabled={busy}>
+                {busy ? 'Proving…' : 'Prove and submit'}
+              </button>
+            </div>
 
-        {last && (
-          <div style={{ marginTop: 22 }}>
-            <Notice tone={last.ok ? 'ok' : 'bad'}>{last.message}</Notice>
-            {last.preCheck && (
-              <div style={{ marginTop: 16 }}>
-                <RuleReport result={last.preCheck} />
+            {last && (
+              <div style={{ marginTop: 22 }}>
+                <Notice tone={last.ok ? 'ok' : 'bad'}>{last.message}</Notice>
+                {last.preCheck && (
+                  <div style={{ marginTop: 16 }}>
+                    <RuleReport result={last.preCheck} />
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
-      </form>
+          </form>
 
-      <div className="card">
-        <div className="card-head">
-          <div>
-            <div className="card-title">
-              <span className="tile tile-sm">
-                <Users size={16} />
-              </span>
-              Authorized agents
-            </div>
-            <p className="card-sub">One agent per mandate, bound at creation.</p>
-          </div>
-        </div>
-        {app.mandates.map((mandate) => (
-          <div className="m-agent" key={mandate.id} style={{ padding: '10px 0' }}>
-            <span className="m-agent-avatar" aria-hidden />
-            <div style={{ flex: 1 }}>
-              <div className="m-agent-key">
-                {truncateAddress(mandate.spec.agentPublicKey, 10, 4)}
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <div className="card-title">
+                  <span className="tile tile-sm">
+                    <Users size={16} />
+                  </span>
+                  Authorized agents
+                </div>
+                <p className="card-sub">One agent per mandate, bound at creation.</p>
               </div>
-              <div className="m-agent-role">{mandate.spec.label}</div>
             </div>
-            {app.records[mandate.id]?.revoked ? (
-              <Pill tone="bad">Revoked</Pill>
+            {mandates.length === 0 ? (
+              <p className="hint" style={{ padding: '16px 0' }}>
+                No agent matches that search.
+              </p>
             ) : (
-              <Pill tone="ok">Active</Pill>
+              mandates.map((mandate) => (
+                <div className="m-agent" key={mandate.id} style={{ padding: '10px 0' }}>
+                  <span className="m-agent-avatar" aria-hidden />
+                  <div style={{ flex: 1 }}>
+                    <div className="m-agent-key">
+                      {truncateAddress(mandate.spec.agentPublicKey, 10, 4)}
+                    </div>
+                    <div className="m-agent-role">{mandate.spec.label}</div>
+                  </div>
+                  {app.records[mandate.id]?.revoked ? (
+                    <Pill tone="bad">Revoked</Pill>
+                  ) : (
+                    <Pill tone="ok">Active</Pill>
+                  )}
+                </div>
+              ))
             )}
           </div>
-        ))}
-      </div>
-    </div>
+        </div>
+      )}
+    </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Activity
+// History
 // ---------------------------------------------------------------------------
 
-function Activity({ app }: { app: App }) {
-  if (app.activity.length === 0) {
+function HistorySection({ app, query }: { app: App; query: string }) {
+  const q = query.trim().toLowerCase();
+  const entries = app.activity.filter((entry) => {
+    if (q === '') return true;
     return (
-      <EmptyState
-        title="No activity yet"
-        body="Actions appear here as soon as an agent proposes one — whether it was authorized or refused."
-      />
+      labelFor(app, entry.mandateId).toLowerCase().includes(q) ||
+      entry.recipient.toLowerCase().includes(q) ||
+      (entry.memo ?? '').toLowerCase().includes(q)
     );
-  }
+  });
 
   return (
-    <div className="card">
-      <div className="feed">
-        {app.activity.map((entry) => (
-          <div className="feed-item" key={entry.id}>
-            <span
-              className={`feed-icon ${entry.outcome === 'executed' ? 'feed-ok' : 'feed-bad'}`}
-            >
-              {entry.outcome === 'executed' ? '✓' : '✕'}
-            </span>
-            <div className="feed-main">
-              <div className="feed-title">
-                <span>
-                  {entry.outcome === 'executed' ? 'Payment executed' : 'Payment refused'}
+    <>
+      <PageTitle
+        title="History"
+        subtitle="Every action proposed under your mandates, and the rule that decided it."
+      />
+
+      {entries.length === 0 ? (
+        <EmptyState
+          title={q === '' ? 'No activity yet' : 'Nothing matches that search'}
+          body={
+            q === ''
+              ? 'Actions appear here as soon as an agent proposes one — whether it was authorized or refused.'
+              : 'Clear the search to see the full history.'
+          }
+        />
+      ) : (
+        <div className="card">
+          <div className="feed">
+            {entries.map((entry) => (
+              <div className="feed-item" key={entry.id}>
+                <span
+                  className={`feed-icon ${entry.outcome === 'executed' ? 'feed-ok' : 'feed-bad'}`}
+                >
+                  {entry.outcome === 'executed' ? '✓' : '✕'}
                 </span>
-                <span className="feed-time">{relativeTime(entry.at)}</span>
-              </div>
-              <div className="feed-meta">
-                {labelFor(app, entry.mandateId)} · {truncateAddress(entry.recipient, 10, 4)}
-                {entry.memo ? ` · ${entry.memo}` : ''}
-              </div>
-              <div
-                className={`feed-amount ${
-                  entry.outcome === 'executed' ? 'feed-amount-ok' : 'feed-amount-bad'
-                }`}
-              >
-                {entry.outcome === 'executed' ? '−' : ''}
-                {formatToken(entry.amount)}
-              </div>
-              {entry.outcome !== 'executed' && (
-                <div className="feed-meta" style={{ color: 'var(--red)' }}>
-                  {entry.message}
+                <div className="feed-main">
+                  <div className="feed-title">
+                    <span>
+                      {entry.outcome === 'executed' ? 'Payment executed' : 'Payment refused'}
+                    </span>
+                    <span className="feed-time">{relativeTime(entry.at)}</span>
+                  </div>
+                  <div className="feed-meta">
+                    {labelFor(app, entry.mandateId)} · {truncateAddress(entry.recipient, 10, 4)}
+                    {entry.memo ? ` · ${entry.memo}` : ''}
+                  </div>
+                  <div
+                    className={`feed-amount ${
+                      entry.outcome === 'executed' ? 'feed-amount-ok' : 'feed-amount-bad'
+                    }`}
+                  >
+                    {entry.outcome === 'executed' ? '−' : ''}
+                    {formatToken(entry.amount)}
+                  </div>
+                  {entry.outcome !== 'executed' && (
+                    <div className="feed-meta" style={{ color: 'var(--red)' }}>
+                      {entry.message}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            {entry.violatedRule && <Pill tone="bad">{entry.violatedRule}</Pill>}
+                {entry.violatedRule && <Pill tone="bad">{entry.violatedRule}</Pill>}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-    </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1147,115 +1576,282 @@ const DISCLOSURE_LABELS: Record<number, string> = {
   3: 'Valid until',
 };
 
-function Disclosure({ app }: { app: App }) {
+function DisclosureSection({ app }: { app: App }) {
   const [mandateId, setMandateId] = useState('');
   const [note, setNote] = useState<ActionResult | null>(null);
   const selected = app.mandates.find((m) => m.id === mandateId) ?? app.mandates[0];
 
-  if (app.mandates.length === 0) {
-    return (
-      <EmptyState
-        title="Nothing to disclose yet"
-        body="Disclosures are proven against a mandate's commitment. Create a mandate first."
+  return (
+    <>
+      <PageTitle
+        title="Selective disclosure"
+        subtitle="Prove one fact to a third party without opening anything else."
       />
-    );
-  }
+
+      {app.mandates.length === 0 ? (
+        <EmptyState
+          title="Nothing to disclose yet"
+          body="Disclosures are proven against a mandate's commitment. Create a mandate first."
+        />
+      ) : (
+        <div className="db-cols">
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <div className="card-title">
+                  <span className="tile tile-sm">
+                    <Eye size={16} />
+                  </span>
+                  Publish a proof
+                </div>
+                <p className="card-sub">
+                  The first proves a statement and publishes no rule value at all. The others open
+                  exactly one field, proven consistent with the commitment; every other rule stays
+                  hidden.
+                </p>
+              </div>
+            </div>
+
+            <Field label="Mandate">
+              <select value={selected?.id ?? ''} onChange={(e) => setMandateId(e.target.value)}>
+                {app.mandates.map((mandate) => (
+                  <option key={mandate.id} value={mandate.id}>
+                    {mandate.spec.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <div className="btn-row" style={{ marginTop: 20 }}>
+              <button
+                className="btn btn-primary"
+                onClick={() => selected && void app.discloseTotalRespected(selected.id).then(setNote)}
+              >
+                Total limit was respected
+              </button>
+              <button
+                className="btn"
+                onClick={() => selected && void app.discloseField(selected.id, 2n).then(setNote)}
+              >
+                Reveal max per transaction
+              </button>
+              <button
+                className="btn"
+                onClick={() => selected && void app.discloseField(selected.id, 3n).then(setNote)}
+              >
+                Reveal valid until
+              </button>
+            </div>
+
+            {note && (
+              <div style={{ marginTop: 20 }}>
+                <Notice tone={note.ok ? 'ok' : 'bad'}>{note.message}</Notice>
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <div className="card-title">
+                  <span className="tile tile-sm">
+                    <Pulse size={16} />
+                  </span>
+                  Published
+                </div>
+                <p className="card-sub">What a third party reading the ledger would see.</p>
+              </div>
+            </div>
+
+            {app.disclosures.length === 0 ? (
+              <p className="hint" style={{ padding: '16px 0' }}>
+                No disclosures published.
+              </p>
+            ) : (
+              <div className="feed">
+                {app.disclosures.map((entry, index) => (
+                  <DisclosureItem
+                    key={`${entry.mandateId}-${index}`}
+                    title={DISCLOSURE_LABELS[entry.kind] ?? `Field ${entry.kind}`}
+                    detail={
+                      <>
+                        {entry.revealsValue ? (
+                          <span className="mono">{formatToken(entry.value)}</span>
+                        ) : (
+                          'proven — no value revealed'
+                        )}{' '}
+                        · <Hash value={entry.mandateId} chars={8} />
+                      </>
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+function SettingsSection({ app }: { app: App }) {
+  const [copied, setCopied] = useState('');
+
+  const copy = async (value: string, what: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(what);
+      setTimeout(() => setCopied(''), 2000);
+    } catch {
+      setCopied('');
+    }
+  };
 
   return (
-    <div className="db-cols">
-      <div className="card">
-        <div className="card-head">
-          <div>
-            <div className="card-title">
-              <span className="tile tile-sm">
-                <Eye size={16} />
-              </span>
-              Publish a proof
+    <>
+      <PageTitle
+        title="Settings"
+        subtitle="Where this session is connected, and what it keeps on your device."
+      />
+
+      <div className="db-cols">
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <div className="card-title">
+                <span className="tile tile-sm">
+                  <Wallet size={16} />
+                </span>
+                Connection
+              </div>
+              <p className="card-sub">
+                {SPEND_TOKEN} is the asset a mandate governs; {FEE_TOKEN} pays the transaction fees.
+              </p>
             </div>
-            <p className="card-sub">
-              The first proves a statement and publishes no rule value at all. The others open
-              exactly one field, proven consistent with the commitment; every other rule stays
-              hidden.
-            </p>
+          </div>
+
+          <dl className="kv">
+            <dt>Network</dt>
+            <dd>
+              {app.mode === 'demo' ? 'Demo — nothing settles on any chain' : NETWORK_LABEL}
+              <div className="hint">
+                Pinned in code. The app refuses to proceed if the wallet reports anything else.
+              </div>
+            </dd>
+            <dt>Registry contract</dt>
+            <dd>
+              {app.registryAddress ? (
+                <span className="db-copy">
+                  <span className="mono" title={app.registryAddress}>
+                    {truncateAddress(app.registryAddress, 16, 8)}
+                  </span>
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => void copy(app.registryAddress!, 'registry')}
+                  >
+                    <Copy size={13} />
+                    {copied === 'registry' ? 'Copied' : 'Copy'}
+                  </button>
+                </span>
+              ) : (
+                <>
+                  not configured
+                  <div className="hint">
+                    Set NEXT_PUBLIC_CONTRACT_ADDRESS to a deployed registry address.
+                  </div>
+                </>
+              )}
+            </dd>
+            <dt>Funding wallet</dt>
+            <dd>
+              {app.fundingAddress ? (
+                <span className="db-copy">
+                  <span className="mono" title={app.fundingAddress}>
+                    {truncateAddress(app.fundingAddress, 16, 8)}
+                  </span>
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => void copy(app.fundingAddress, 'wallet')}
+                  >
+                    <Copy size={13} />
+                    {copied === 'wallet' ? 'Copied' : 'Copy'}
+                  </button>
+                </span>
+              ) : (
+                '—'
+              )}
+              <div className="hint">
+                Every mandate is funded from here, and every reclaim returns here.
+              </div>
+            </dd>
+            <dt>Balances</dt>
+            <dd>
+              {app.balances ? (
+                <>
+                  {formatAmount(app.balances.night)} {SPEND_TOKEN} ·{' '}
+                  {formatAmount(app.balances.dust)} {FEE_TOKEN}
+                </>
+              ) : (
+                'unavailable'
+              )}
+            </dd>
+          </dl>
+
+          <div className="btn-row" style={{ marginTop: 18 }}>
+            <button className="btn btn-sm" onClick={() => void app.refreshBalances()}>
+              Refresh balances
+            </button>
+            <a className="btn btn-sm" href={FAUCET_URL} target="_blank" rel="noreferrer">
+              Open the faucet
+            </a>
           </div>
         </div>
 
-        <Field label="Mandate">
-          <select value={selected?.id ?? ''} onChange={(e) => setMandateId(e.target.value)}>
-            {app.mandates.map((mandate) => (
-              <option key={mandate.id} value={mandate.id}>
-                {mandate.spec.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <div className="btn-row" style={{ marginTop: 20 }}>
-          <button
-            className="btn btn-primary"
-            onClick={() => selected && void app.discloseTotalRespected(selected.id).then(setNote)}
-          >
-            Total limit was respected
-          </button>
-          <button
-            className="btn"
-            onClick={() => selected && void app.discloseField(selected.id, 2n).then(setNote)}
-          >
-            Reveal max per transaction
-          </button>
-          <button
-            className="btn"
-            onClick={() => selected && void app.discloseField(selected.id, 3n).then(setNote)}
-          >
-            Reveal valid until
-          </button>
-        </div>
-
-        {note && (
-          <div style={{ marginTop: 20 }}>
-            <Notice tone={note.ok ? 'ok' : 'bad'}>{note.message}</Notice>
-          </div>
-        )}
-      </div>
-
-      <div className="card">
-        <div className="card-head">
-          <div>
-            <div className="card-title">
-              <span className="tile tile-sm">
-                <Pulse size={16} />
-              </span>
-              Published
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <div className="card-title">
+                <span className="tile tile-sm">
+                  <Shield size={16} />
+                </span>
+                What stays on this device
+              </div>
             </div>
-            <p className="card-sub">What a third party reading the ledger would see.</p>
           </div>
-        </div>
-
-        {app.disclosures.length === 0 ? (
-          <p className="hint" style={{ padding: '16px 0' }}>
-            No disclosures published.
+          <p className="card-sub" style={{ marginBottom: 14 }}>
+            Your mandate rules, the commitment salt, the creator secret and the agent secret are
+            held in encrypted local storage under the password you entered. There is no server to
+            send them to, and no recovery if the password is lost.
           </p>
-        ) : (
-          <div className="feed">
-            {app.disclosures.map((entry, index) => (
-              <DisclosureItem
-                key={`${entry.mandateId}-${index}`}
-                title={DISCLOSURE_LABELS[entry.kind] ?? `Field ${entry.kind}`}
-                detail={
-                  <>
-                    {entry.revealsValue ? (
-                      <span className="mono">{formatToken(entry.value)}</span>
-                    ) : (
-                      'proven — no value revealed'
-                    )}{' '}
-                    · <Hash value={entry.mandateId} chars={8} />
-                  </>
-                }
-              />
-            ))}
+          <dl className="kv">
+            <dt>Mandates stored</dt>
+            <dd>{app.mandates.length}</dd>
+            <dt>Disclosures published</dt>
+            <dd>{app.disclosures.length}</dd>
+            <dt>Actions recorded</dt>
+            <dd>{app.activity.length} this session</dd>
+          </dl>
+
+          {app.mode === 'chain' && (
+            <div style={{ marginTop: 18 }}>
+              <Notice tone="warn">
+                Losing the private-state password means losing the ability to prove anything about
+                your mandates — including the ability to withdraw. Keep it somewhere durable.
+              </Notice>
+            </div>
+          )}
+
+          <div className="btn-row" style={{ marginTop: 18 }}>
+            <Link href="/#security" className="btn btn-sm">
+              How this is secured
+            </Link>
           </div>
-        )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

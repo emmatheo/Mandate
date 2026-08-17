@@ -270,6 +270,42 @@ export function Alert(p: P) {
   );
 }
 
+export function Search(p: P) {
+  return (
+    <svg {...base(p.size ?? 16)}>
+      <circle cx="10.8" cy="10.8" r="6.6" />
+      <path d="m15.6 15.6 4.2 4.2" />
+    </svg>
+  );
+}
+
+export function Chevron(p: P) {
+  return (
+    <svg {...base(p.size ?? 14)}>
+      <path d="m7 10 5 5 5-5" />
+    </svg>
+  );
+}
+
+export function Cog(p: P) {
+  return (
+    <svg {...base(p.size ?? 17)}>
+      <circle cx="12" cy="12" r="3.1" />
+      <path d="M19.2 14.4a1.6 1.6 0 0 0 .32 1.76l.06.06a1.9 1.9 0 1 1-2.7 2.7l-.05-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.46V20a1.9 1.9 0 1 1-3.8 0v-.1a1.6 1.6 0 0 0-1.04-1.45 1.6 1.6 0 0 0-1.77.32l-.05.06a1.9 1.9 0 1 1-2.7-2.7l.06-.05a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.46-.97H4a1.9 1.9 0 1 1 0-3.8h.1a1.6 1.6 0 0 0 1.45-1.04 1.6 1.6 0 0 0-.32-1.77l-.06-.05a1.9 1.9 0 1 1 2.7-2.7l.05.06a1.6 1.6 0 0 0 1.77.32H9.8a1.6 1.6 0 0 0 .97-1.46V4a1.9 1.9 0 1 1 3.8 0v.1a1.6 1.6 0 0 0 .97 1.46 1.6 1.6 0 0 0 1.77-.32l.05-.06a1.9 1.9 0 1 1 2.7 2.7l-.06.05a1.6 1.6 0 0 0-.32 1.77v.04a1.6 1.6 0 0 0 1.46.97H20a1.9 1.9 0 1 1 0 3.8h-.1a1.6 1.6 0 0 0-1.46.97Z" />
+    </svg>
+  );
+}
+
+export function Gauge(p: P) {
+  return (
+    <svg {...base(p.size ?? 20)}>
+      <path d="M4.2 17.5a9 9 0 1 1 15.6 0" />
+      <path d="M12 12.8 16 8.6" />
+      <circle cx="12" cy="14" r="1.6" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export function KeyOff(p: P) {
   return (
     <svg {...base(p.size ?? 15)}>
