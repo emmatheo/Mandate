@@ -1,0 +1,507 @@
+// Mandate — private AI agent mandate system on Midnight.
+//
+// A user creates a *mandate*: a structured set of spending rules for an AI agent.
+// The full rule set never leaves the user's private state; only a cryptographic
+// commitment to it is published on-chain, together with the authorized agent's
+// public key and the escrowed deposit.
+//
+// An agent can only move funds out of the escrow by producing a zero-knowledge
+// proof that:
+//   1. it knows the pre-image of the stored commitment (the private rules),
+//   2. the proposed action satisfies every one of those rules,
+//   3. it holds the secret key behind the mandate's authorized agent public key,
+//   4. the mandate has not been revoked and is within its validity window.
+//
+// Nothing about the rules themselves is revealed by that proof.
+
+pragma language_version 0.23;
+
+import CompactStandardLibrary;
+
+// ---------------------------------------------------------------------------
+// Domain separators
+// ---------------------------------------------------------------------------
+
+// Bound into every hash so a digest from one context can never be replayed in
+// another.
+circuit agentKeyDomain(): Bytes<32> { return pad(32, "mandate:agent-key:v1"); }
+circuit creatorKeyDomain(): Bytes<32> { return pad(32, "mandate:creator-key:v1"); }
+
+// ---------------------------------------------------------------------------
+// The private mandate
+// ---------------------------------------------------------------------------
+
+// The complete rule set. This type is PRIVATE: values of it live only in the
+// user's (and the authorized agent's) local private state. Only
+// `persistentCommit(rules, salt)` is ever published.
+//
+// `allowedRecipients` holds up to 8 permitted destination addresses. When
+// `restrictRecipients` is false the vector is ignored entirely and the agent may
+// pay anyone. When it is true, unused slots must be padded by repeating an
+// allowed address (never left zeroed), so that a zero-valued address can never
+// be smuggled through.
+export struct MandateRules {
+  // Ceiling on the sum of every transfer ever made under this mandate.
+  maxTotalSpend: Uint<128>;
+  // Ceiling on any single transfer.
+  maxPerTransaction: Uint<128>;
+  // Validity window, in seconds since the Unix epoch.
+  validFrom: Uint<64>;
+  validUntil: Uint<64>;
+  // Optional rolling window (e.g. 86400 for a daily cap, 604800 for weekly).
+  // Zero disables the rolling limit entirely.
+  periodSeconds: Uint<64>;
+  periodLimit: Uint<128>;
+  // Recipient allow-list.
+  restrictRecipients: Boolean;
+  allowedRecipients: Vector<8, Bytes<32>>;
+  // Identity of the one agent allowed to act under this mandate.
+  agentPublicKey: Bytes<32>;
+}
+
+// ---------------------------------------------------------------------------
+// The public record
+// ---------------------------------------------------------------------------
+
+// What the ledger stores for each mandate. Deliberately contains no rule values:
+// the rules are represented only by `commitment`.
+export struct MandateRecord {
+  // persistentCommit(rules, salt) — hides the rules, binds the agent to them.
+  commitment: Bytes<32>;
+  // The authorized agent's public key. Published per the mandate specification
+  // so third parties can see *which* agent holds authority, never what for.
+  agentPublicKey: Bytes<32>;
+  // Hash of the creator's secret. Revoke and withdraw require proving knowledge
+  // of the pre-image, so no third party can trigger either.
+  creatorAuth: Bytes<32>;
+  // The unshielded address that funded this mandate. Unspent balance can only
+  // ever be returned here — see `withdraw`. Recording it costs no privacy: the
+  // deposit is an unshielded transfer from this address, so it is already
+  // public in the funding transaction itself.
+  creatorAddress: Bytes<32>;
+  // Unspent balance still held in escrow for this mandate.
+  escrow: Uint<128>;
+  // Total ever deposited (deposits are public: the funds move on a public ledger).
+  deposited: Uint<128>;
+  // Cumulative amount released to recipients.
+  spent: Uint<128>;
+  // Rolling-window accounting. See the privacy note in the README: these two
+  // fields are public so that the period limit is enforced by the *chain* rather
+  // than by an agent's honesty about its own local history.
+  periodStart: Uint<64>;
+  periodSpent: Uint<128>;
+  // Monotonic action counter, bound into each authorization proof.
+  actionCount: Uint<64>;
+  revoked: Boolean;
+}
+
+// A published selective-disclosure statement about a past mandate.
+export struct Disclosure {
+  mandateId: Bytes<32>;
+  // 0 = "the total-spend limit was respected" (no value revealed)
+  // 1 = maxTotalSpend revealed
+  // 2 = maxPerTransaction revealed
+  // 3 = validUntil revealed
+  kind: Uint<8>;
+  // Populated only when `revealsValue` is true.
+  value: Uint<128>;
+  revealsValue: Boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Public ledger state
+// ---------------------------------------------------------------------------
+
+export ledger mandates: Map<Bytes<32>, MandateRecord>;
+export ledger disclosureLog: List<Disclosure>;
+
+// ---------------------------------------------------------------------------
+// Private state callbacks
+// ---------------------------------------------------------------------------
+
+// The full rule set for a mandate, from the caller's local store.
+witness localRules(id: Bytes<32>): MandateRules;
+// The commitment opening (blinding factor) for that rule set.
+witness localSalt(id: Bytes<32>): Bytes<32>;
+// The agent's secret key. Only the authorized agent's private state holds this.
+witness localAgentSecretKey(id: Bytes<32>): Bytes<32>;
+// The creator's revoke/withdraw secret. Only the creator's private state holds it.
+witness localCreatorSecretKey(id: Bytes<32>): Bytes<32>;
+
+// ---------------------------------------------------------------------------
+// Key derivation — exposed as pure circuits so the DApp can derive the same
+// values locally, with no proof and no network round-trip.
+// ---------------------------------------------------------------------------
+
+// An agent's public identity: the hash of its secret key. Publishing this
+// discloses nothing about the key itself, so the disclose() is deliberate.
+export pure circuit deriveAgentPublicKey(secretKey: Bytes<32>): Bytes<32> {
+  return disclose(persistentHash<Vector<2, Bytes<32>>>([agentKeyDomain(), secretKey]));
+}
+
+// The creator's authorization handle, derived the same way.
+export pure circuit deriveCreatorAuth(secretKey: Bytes<32>): Bytes<32> {
+  return disclose(persistentHash<Vector<2, Bytes<32>>>([creatorKeyDomain(), secretKey]));
+}
+
+// The public commitment to a private rule set. persistentCommit is a hiding
+// commitment, so its output carries no witness data.
+export pure circuit deriveMandateCommitment(rules: MandateRules, salt: Bytes<32>): Bytes<32> {
+  return persistentCommit<MandateRules>(rules, salt);
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+// Fold step for the recipient allow-list check.
+circuit anyMatch(acc: Boolean, allowed: Bytes<32>, target: Bytes<32>): Boolean {
+  return acc || (allowed == target);
+}
+
+// Pins the caller-supplied `now` to the chain's own clock. `blockTimeGte(now)`
+// forces the real block time to be at or after `now`, and `blockTimeLt(now+300)`
+// forces it to be within five minutes of it. The result: `now` is honest to
+// within 300 seconds, and the mandate's actual validity window — which is
+// private — is never handed to a kernel operation.
+circuit bindToBlockTime(now: Uint<64>): [] {
+  assert(blockTimeGte(now), "Mandate: claimed timestamp is in the future");
+  assert(blockTimeLt((now + 300) as Uint<64>), "Mandate: claimed timestamp is stale");
+}
+
+// ---------------------------------------------------------------------------
+// Mandate lifecycle
+// ---------------------------------------------------------------------------
+
+// Create a mandate and fund its escrow.
+//
+// The rules, the salt, the agent's public key and the creator's authorization
+// handle are all derived in-circuit from the caller's private state, so the
+// commitment published here is guaranteed to be a commitment to a rule set the
+// creator actually holds.
+//
+// `deposit` is transferred from the caller into the contract's escrow. It is a
+// public unshielded transfer of the native token — the amount is visible, the
+// rules governing how it may be spent are not.
+export circuit createMandate(
+  id: Bytes<32>,
+  creatorAddress: Bytes<32>,
+  deposit: Uint<128>
+): Bytes<32> {
+  const mandateId = disclose(id);
+  assert(!mandates.member(mandateId), "Mandate: id already in use");
+  assert(deposit > 0, "Mandate: deposit must be greater than zero");
+
+  const rules = localRules(id);
+  const salt = localSalt(id);
+
+  // Reject rule sets that could never authorize anything, so a user cannot fund
+  // an escrow that is dead on arrival.
+  assert(rules.maxPerTransaction > 0, "Mandate: maxPerTransaction must be greater than zero");
+  assert(rules.maxPerTransaction <= rules.maxTotalSpend,
+         "Mandate: maxPerTransaction cannot exceed maxTotalSpend");
+  assert(rules.validFrom < rules.validUntil, "Mandate: validFrom must precede validUntil");
+  assert(!(rules.periodSeconds > 0) || rules.periodLimit > 0,
+         "Mandate: a rolling period needs a non-zero periodLimit");
+
+  const commitment = deriveMandateCommitment(rules, salt);
+  const agentPk = rules.agentPublicKey;
+  const creatorAuth = deriveCreatorAuth(localCreatorSecretKey(id));
+
+  const amount = disclose(deposit);
+  const refundAddress = disclose(creatorAddress);
+  receiveUnshielded(nativeToken(), amount);
+
+  mandates.insert(mandateId, MandateRecord {
+    commitment: commitment,
+    agentPublicKey: disclose(agentPk),
+    creatorAuth: creatorAuth,
+    creatorAddress: refundAddress,
+    escrow: amount,
+    deposited: amount,
+    spent: 0,
+    periodStart: 0,
+    periodSpent: 0,
+    actionCount: 0,
+    revoked: false
+  });
+
+  return commitment;
+}
+
+// Add more funds to an existing, live mandate's escrow.
+//
+// Restricted to the creator. A stranger topping up the escrow would silently
+// widen how much the agent can actually move, which is the creator's decision
+// to make and nobody else's.
+export circuit fundMandate(id: Bytes<32>, amount: Uint<128>): [] {
+  const mandateId = disclose(id);
+  assert(mandates.member(mandateId), "Mandate: unknown mandate");
+  const rec = mandates.lookup(mandateId);
+  assert(deriveCreatorAuth(localCreatorSecretKey(id)) == rec.creatorAuth,
+         "Mandate: only the creator can add funds to this mandate");
+  assert(!rec.revoked, "Mandate: mandate has been revoked");
+  assert(amount > 0, "Mandate: amount must be greater than zero");
+
+  const value = disclose(amount);
+  receiveUnshielded(nativeToken(), value);
+
+  mandates.insert(mandateId, MandateRecord {
+    commitment: rec.commitment,
+    agentPublicKey: rec.agentPublicKey,
+    creatorAuth: rec.creatorAuth,
+    creatorAddress: rec.creatorAddress,
+    escrow: (rec.escrow + value) as Uint<128>,
+    deposited: (rec.deposited + value) as Uint<128>,
+    spent: rec.spent,
+    periodStart: rec.periodStart,
+    periodSpent: rec.periodSpent,
+    actionCount: rec.actionCount,
+    revoked: rec.revoked
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Authorization and execution — the core circuit
+// ---------------------------------------------------------------------------
+
+// Execute an agent-proposed transfer against a mandate.
+//
+// Everything the chain learns is: which mandate, how much moved, to whom, and
+// roughly when. Every *rule* that made the transfer legal stays private; a
+// violation of any of them makes this circuit unsatisfiable, so no proof can be
+// produced and no funds can move.
+export circuit executeAction(
+  id: Bytes<32>,
+  recipient: Bytes<32>,
+  amount: Uint<128>,
+  now: Uint<64>
+): [] {
+  const mandateId = disclose(id);
+  assert(mandates.member(mandateId), "Mandate: unknown mandate");
+
+  const rec = mandates.lookup(mandateId);
+  assert(!rec.revoked, "Mandate: mandate has been revoked");
+
+  const value = disclose(amount);
+  const to = disclose(recipient);
+  const timestamp = disclose(now);
+
+  // --- (1) Open the commitment ------------------------------------------
+  // Proves the caller holds the exact rule set the creator committed to. A
+  // mismatch here means the caller invented or edited the rules.
+  const rules = localRules(id);
+  const salt = localSalt(id);
+  assert(deriveMandateCommitment(rules, salt) == rec.commitment,
+         "Mandate: rules do not open the on-chain commitment");
+
+  // --- (2) Prove agent identity -----------------------------------------
+  // Knowledge of the pre-image of the stored agent public key. A different
+  // agent, holding the same rules, still cannot satisfy this.
+  assert(deriveAgentPublicKey(localAgentSecretKey(id)) == rec.agentPublicKey,
+         "Mandate: caller is not the authorized agent");
+
+  // --- (3) Anchor the claimed time to the chain -------------------------
+  bindToBlockTime(timestamp);
+
+  // --- (4) Private rule checks ------------------------------------------
+  assert(timestamp >= rules.validFrom, "Mandate: mandate is not yet valid");
+  assert(timestamp < rules.validUntil, "Mandate: mandate has expired");
+
+  assert(value > 0, "Mandate: amount must be greater than zero");
+  assert(value <= rules.maxPerTransaction, "Mandate: amount exceeds the per-transaction limit");
+
+  const newSpent = rec.spent + value;
+  assert(newSpent <= rules.maxTotalSpend, "Mandate: amount exceeds the total spend limit");
+
+  // Recipient allow-list. When restricted, `to` must equal one of the eight
+  // committed addresses.
+  const allowed = fold(
+    anyMatch,
+    false,
+    rules.allowedRecipients,
+    [to, to, to, to, to, to, to, to]
+  );
+  assert(!rules.restrictRecipients || allowed, "Mandate: recipient is not on the allow-list");
+
+  // Rolling-window limit. A window that has elapsed resets; one still running
+  // accumulates.
+  const windowElapsed = !(rules.periodSeconds > 0)
+    || timestamp >= (rec.periodStart + rules.periodSeconds);
+  const periodBase = windowElapsed ? 0 as Uint<128> : rec.periodSpent;
+  const newPeriodSpent = periodBase + value;
+  assert(!(rules.periodSeconds > 0) || newPeriodSpent <= rules.periodLimit,
+         "Mandate: amount exceeds the rolling-period limit");
+
+  // --- (5) Escrow solvency ----------------------------------------------
+  assert(rec.escrow >= value, "Mandate: insufficient escrow balance");
+
+  // --- (6) Release the funds --------------------------------------------
+  sendUnshielded(nativeToken(), value, right<ContractAddress, UserAddress>(UserAddress { bytes: to }));
+
+  // `windowElapsed` and therefore the new period bookkeeping are derived from
+  // the private `periodSeconds`; publishing them is the documented trade-off
+  // that lets the chain, rather than the agent, enforce the rolling limit.
+  mandates.insert(mandateId, MandateRecord {
+    commitment: rec.commitment,
+    agentPublicKey: rec.agentPublicKey,
+    creatorAuth: rec.creatorAuth,
+    creatorAddress: rec.creatorAddress,
+    escrow: (rec.escrow - value) as Uint<128>,
+    deposited: rec.deposited,
+    spent: newSpent as Uint<128>,
+    periodStart: disclose(windowElapsed ? timestamp : rec.periodStart),
+    periodSpent: disclose(newPeriodSpent as Uint<128>),
+    actionCount: (rec.actionCount + 1) as Uint<64>,
+    revoked: rec.revoked
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Revocation and reclaim
+// ---------------------------------------------------------------------------
+
+// Revoke a mandate. Every future authorization proof for it becomes
+// unsatisfiable. Only the creator can do this, proven by knowledge of the secret
+// behind `creatorAuth` — no wallet address is revealed.
+export circuit revokeMandate(id: Bytes<32>): [] {
+  const mandateId = disclose(id);
+  assert(mandates.member(mandateId), "Mandate: unknown mandate");
+
+  const rec = mandates.lookup(mandateId);
+  assert(deriveCreatorAuth(localCreatorSecretKey(id)) == rec.creatorAuth,
+         "Mandate: caller is not the creator of this mandate");
+  assert(!rec.revoked, "Mandate: mandate is already revoked");
+
+  mandates.insert(mandateId, MandateRecord {
+    commitment: rec.commitment,
+    agentPublicKey: rec.agentPublicKey,
+    creatorAuth: rec.creatorAuth,
+    creatorAddress: rec.creatorAddress,
+    escrow: rec.escrow,
+    deposited: rec.deposited,
+    spent: rec.spent,
+    periodStart: rec.periodStart,
+    periodSpent: rec.periodSpent,
+    actionCount: rec.actionCount,
+    revoked: true
+  });
+}
+
+// Reclaim the unspent escrow balance.
+//
+// Two independent conditions protect the funds, and both must hold:
+//
+//   1. The caller must prove knowledge of the creator's secret, so no third
+//      party can trigger a withdrawal at all.
+//   2. The destination is NOT a parameter. The balance is always returned to
+//      `creatorAddress` — the address that funded the mandate. Even someone who
+//      somehow obtained the creator's secret could only ever push the money back
+//      to the original depositor.
+//
+// That is what makes "only the wallet that deposited can withdraw" a property of
+// the contract rather than of the user interface.
+//
+// Requires the mandate to be revoked first, so no agent action can be in flight
+// against the balance being reclaimed.
+export circuit withdraw(id: Bytes<32>): Uint<128> {
+  const mandateId = disclose(id);
+  assert(mandates.member(mandateId), "Mandate: unknown mandate");
+
+  const rec = mandates.lookup(mandateId);
+  assert(deriveCreatorAuth(localCreatorSecretKey(id)) == rec.creatorAuth,
+         "Mandate: caller is not the creator of this mandate");
+  assert(rec.revoked, "Mandate: revoke the mandate before withdrawing");
+  assert(rec.escrow > 0, "Mandate: nothing left to withdraw");
+
+  const refund = rec.escrow;
+  sendUnshielded(
+    nativeToken(),
+    refund,
+    right<ContractAddress, UserAddress>(UserAddress { bytes: rec.creatorAddress })
+  );
+
+  mandates.insert(mandateId, MandateRecord {
+    commitment: rec.commitment,
+    agentPublicKey: rec.agentPublicKey,
+    creatorAuth: rec.creatorAuth,
+    creatorAddress: rec.creatorAddress,
+    escrow: 0,
+    deposited: rec.deposited,
+    spent: rec.spent,
+    periodStart: rec.periodStart,
+    periodSpent: rec.periodSpent,
+    actionCount: rec.actionCount,
+    revoked: rec.revoked
+  });
+
+  return refund;
+}
+
+// ---------------------------------------------------------------------------
+// Selective disclosure
+// ---------------------------------------------------------------------------
+
+// Publish a proof that the mandate's total-spend ceiling was respected, without
+// revealing what that ceiling was. A third party reading `disclosureLog` learns
+// the statement is true for this mandate and nothing more.
+export circuit discloseTotalSpendRespected(id: Bytes<32>): [] {
+  const mandateId = disclose(id);
+  assert(mandates.member(mandateId), "Mandate: unknown mandate");
+
+  const rec = mandates.lookup(mandateId);
+  const rules = localRules(id);
+  const salt = localSalt(id);
+  assert(deriveMandateCommitment(rules, salt) == rec.commitment,
+         "Mandate: rules do not open the on-chain commitment");
+  assert(deriveCreatorAuth(localCreatorSecretKey(id)) == rec.creatorAuth,
+         "Mandate: caller is not the creator of this mandate");
+
+  assert(rec.spent <= rules.maxTotalSpend, "Mandate: total spend limit was exceeded");
+
+  disclosureLog.pushFront(Disclosure {
+    mandateId: mandateId,
+    kind: 0,
+    value: 0,
+    revealsValue: false
+  });
+}
+
+// Reveal exactly one field of a mandate, proven consistent with the on-chain
+// commitment. Everything else in the rule set stays hidden.
+//
+//   kind 1 -> maxTotalSpend
+//   kind 2 -> maxPerTransaction
+//   kind 3 -> validUntil
+export circuit discloseField(id: Bytes<32>, kind: Uint<8>): Uint<128> {
+  const mandateId = disclose(id);
+  assert(mandates.member(mandateId), "Mandate: unknown mandate");
+
+  const rec = mandates.lookup(mandateId);
+  const rules = localRules(id);
+  const salt = localSalt(id);
+  assert(deriveMandateCommitment(rules, salt) == rec.commitment,
+         "Mandate: rules do not open the on-chain commitment");
+  assert(deriveCreatorAuth(localCreatorSecretKey(id)) == rec.creatorAuth,
+         "Mandate: caller is not the creator of this mandate");
+
+  const which = disclose(kind);
+  assert(which >= 1 && which <= 3, "Mandate: unknown disclosure field");
+
+  // Only the single selected field is unwrapped; the rest of `rules` is never
+  // touched by a disclose().
+  const revealed = disclose(
+    which == 1 ? rules.maxTotalSpend
+    : which == 2 ? rules.maxPerTransaction
+    : rules.validUntil as Uint<128>
+  );
+
+  disclosureLog.pushFront(Disclosure {
+    mandateId: mandateId,
+    kind: which,
+    value: revealed,
+    revealsValue: true
+  });
+
+  return revealed;
+}
