@@ -39,6 +39,7 @@ import type { ConnectedAPI, InitialAPI } from '@midnight-ntwrk/dapp-connector-ap
 import { Contract, ledger as decodeLedger, type Ledger } from '@mandate/contract';
 
 import { bytesToHex, decodeUnshieldedAddress, hexToBytes } from './encoding';
+import { REQUIRED_NETWORK_ID, NETWORK_LABEL } from './network';
 import { toRecordView } from './mandate';
 import { witnesses, type MandatePrivateState } from './private-state';
 import type { MandateRecordView } from './types';
@@ -115,8 +116,9 @@ export async function connectWallet(walletKey?: string): Promise<WalletConnectio
   const chosen = walletKey ? wallets.find((w) => w.key === walletKey) : wallets[0];
   if (!chosen) throw new Error(`Wallet "${walletKey}" is not available.`);
 
-  const requestedNetwork = process.env.NEXT_PUBLIC_NETWORK_ID ?? 'preprod';
-  const api = await chosen.wallet.connect(requestedNetwork);
+  // Pinned, never configured. An env var here would be a build-time switch to
+  // mainnet, putting real funds behind circuits that have never been audited.
+  const api = await chosen.wallet.connect(REQUIRED_NETWORK_ID);
 
   await api.hintUsage([
     'getUnshieldedAddress',
@@ -130,10 +132,13 @@ export async function connectWallet(walletKey?: string): Promise<WalletConnectio
   const configuration = await api.getConfiguration();
   const { unshieldedAddress } = await api.getUnshieldedAddress();
 
-  if (configuration.networkId !== requestedNetwork) {
+  // Checked again after connecting: a wallet may report a different network than
+  // the one it was asked for, and proceeding would sign against the wrong chain.
+  if (configuration.networkId !== REQUIRED_NETWORK_ID) {
     throw new Error(
-      `The wallet is connected to "${configuration.networkId}" but this app is configured for ` +
-        `"${requestedNetwork}". Switch networks in the wallet, or set NEXT_PUBLIC_NETWORK_ID.`,
+      `The wallet is connected to "${configuration.networkId}". Mandate runs only on ` +
+        `${NETWORK_LABEL} ("${REQUIRED_NETWORK_ID}"). Switch networks in the wallet and reload. ` +
+        'This is not configurable — the circuits are unaudited and must not touch mainnet.',
     );
   }
 

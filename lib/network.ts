@@ -103,8 +103,9 @@ function formatUnits(value: bigint, decimals = 6): string {
 /**
  * The address of the deployed Mandate registry, if one is configured.
  *
- * When unset the app offers to deploy a fresh registry instead, which is what a
- * first run on a new environment does.
+ * When unset there is no contract to prove against, so the app refuses to
+ * connect and says so. It does not deploy one silently, and it does not carry
+ * on without one: a Mandate with no registry cannot authorize anything.
  */
 export function configuredContractAddress(): string | undefined {
   const value = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS?.trim();

@@ -20,6 +20,7 @@ import {
   Field,
   Hash,
   Notice,
+  outcomeLabel,
   Pill,
   RuleReport,
   relativeTime,
@@ -66,9 +67,10 @@ export function Dashboard() {
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
 
-  // Nothing in here works without a wallet, so the connection is dealt with
-  // first rather than failing on the first click.
-  if (app.mode === 'chain' && app.status !== 'ready') {
+  // Nothing in here works without a wallet, a registry and local private state,
+  // so the connection is dealt with first rather than failing on the first click.
+  // There is no path past this gate that does not hold a live Midnight session.
+  if (app.status !== 'ready') {
     return <ConnectGate session={app} />;
   }
 
@@ -82,16 +84,6 @@ export function Dashboard() {
       <Sidebar section={section} filter={filter} onGo={go} />
 
       <div className="db-main">
-        {app.mode === 'demo' && (
-          <div className="demo-ribbon">
-            Demo mode — real circuits, no chain. Nothing here settles on {NETWORK_LABEL} and no{' '}
-            {SPEND_TOKEN} moves.
-            <button className="btn btn-sm" onClick={() => app.setMode('chain')}>
-              Connect a wallet
-            </button>
-          </div>
-        )}
-
         <header className="db-top">
           <label className="db-search">
             <Search size={16} />
@@ -111,7 +103,7 @@ export function Dashboard() {
 
           <div className="db-chips">
             <NetworkMenu app={app} />
-            <SessionChip address={app.fundingAddress} demo={app.mode === 'demo'} />
+            <SessionChip address={app.fundingAddress} />
           </div>
         </header>
 
@@ -269,15 +261,11 @@ function Sidebar({
 }
 
 /** The address that funds every mandate and receives every reclaim. */
-function SessionChip({ address, demo }: { address: string; demo: boolean }) {
+function SessionChip({ address }: { address: string }) {
   return (
     <span
       className="db-chip"
-      title={
-        demo
-          ? `Demo session. Mandates are funded from, and reclaimed to, ${address}`
-          : `Connected wallet. Mandates are funded from, and reclaimed to, ${address}`
-      }
+      title={`Connected wallet. Mandates are funded from, and reclaimed to, ${address}`}
     >
       <Lock size={14} />
       <span className="mono">{address ? truncateAddress(address, 8, 4) : '—'}</span>
@@ -295,7 +283,6 @@ function SessionChip({ address, demo }: { address: string; demo: boolean }) {
  */
 function NetworkMenu({ app }: { app: App }) {
   const [open, setOpen] = useState(false);
-  const demo = app.mode === 'demo';
 
   return (
     <div className="db-pop-wrap">
@@ -304,8 +291,8 @@ function NetworkMenu({ app }: { app: App }) {
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
       >
-        <span className="dot" style={{ color: demo ? 'var(--amber)' : 'var(--green)' }} aria-hidden />
-        {demo ? 'Demo — no chain' : NETWORK_LABEL}
+        <span className="dot" style={{ color: 'var(--green)' }} aria-hidden />
+        {NETWORK_LABEL}
         <Chevron size={13} />
       </button>
 
@@ -314,7 +301,7 @@ function NetworkMenu({ app }: { app: App }) {
           <div className="db-pop-title">Connection</div>
           <dl className="kv kv-tight">
             <dt>Network</dt>
-            <dd>{demo ? 'Demo — nothing settles' : NETWORK_LABEL}</dd>
+            <dd>{NETWORK_LABEL}</dd>
             <dt>Spend asset</dt>
             <dd>{SPEND_TOKEN}</dd>
             <dt>Fee asset</dt>
@@ -334,16 +321,14 @@ function NetworkMenu({ app }: { app: App }) {
               </span>
             </dd>
           </dl>
-          {!demo && (
-            <div className="btn-row" style={{ marginTop: 14 }}>
-              <button className="btn btn-sm" onClick={() => void app.refreshBalances()}>
-                Refresh balances
-              </button>
-              <a className="btn btn-sm" href={FAUCET_URL} target="_blank" rel="noreferrer">
-                Faucet
-              </a>
-            </div>
-          )}
+          <div className="btn-row" style={{ marginTop: 14 }}>
+            <button className="btn btn-sm" onClick={() => void app.refreshBalances()}>
+              Refresh balances
+            </button>
+            <a className="btn btn-sm" href={FAUCET_URL} target="_blank" rel="noreferrer">
+              Faucet
+            </a>
+          </div>
         </div>
       )}
     </div>
@@ -463,7 +448,7 @@ function Overview({
     <>
       <PageTitle title="Dashboard Overview" subtitle="Your secure AI spending control center." />
 
-      {app.mode === 'chain' && app.balances && app.balances.dust === 0n && (
+      {app.balances && app.balances.dust === 0n && (
         <div style={{ marginBottom: 22 }}>
           <Notice tone="warn">
             <div>
@@ -1551,9 +1536,7 @@ function HistorySection({ app, query }: { app: App; query: string }) {
                 </span>
                 <div className="feed-main">
                   <div className="feed-title">
-                    <span>
-                      {entry.outcome === 'executed' ? 'Payment executed' : 'Payment refused'}
-                    </span>
+                    <span>{outcomeLabel(entry.outcome)}</span>
                     <span className="feed-time">{relativeTime(entry.at)}</span>
                   </div>
                   <div className="feed-meta">
@@ -1756,9 +1739,10 @@ function SettingsSection({ app }: { app: App }) {
           <dl className="kv">
             <dt>Network</dt>
             <dd>
-              {app.mode === 'demo' ? 'Demo — nothing settles on any chain' : NETWORK_LABEL}
+              {NETWORK_LABEL}
               <div className="hint">
-                Pinned in code. The app refuses to proceed if the wallet reports anything else.
+                Pinned in code, not configurable. The app refuses to proceed if the wallet reports
+                any other network.
               </div>
             </dd>
             <dt>Registry contract</dt>
@@ -1855,14 +1839,12 @@ function SettingsSection({ app }: { app: App }) {
             <dd>{app.activity.length} this session</dd>
           </dl>
 
-          {app.mode === 'chain' && (
-            <div style={{ marginTop: 18 }}>
-              <Notice tone="warn">
-                Losing the private-state password means losing the ability to prove anything about
-                your mandates — including the ability to withdraw. Keep it somewhere durable.
-              </Notice>
-            </div>
-          )}
+          <div style={{ marginTop: 18 }}>
+            <Notice tone="warn">
+              Losing the private-state password means losing the ability to prove anything about
+              your mandates — including the ability to withdraw. Keep it somewhere durable.
+            </Notice>
+          </div>
 
           <div className="btn-row" style={{ marginTop: 18 }}>
             <Link href="/#security" className="btn btn-sm">

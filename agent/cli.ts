@@ -2,15 +2,19 @@
  * Mandate agent CLI.
  *
  *   npm run agent -- keygen        generate an agent keypair
- *   npm run agent -- demo          run the full lifecycle against real circuits
+ *   npm run agent -- selftest      exercise the circuits in-process
  *
- * The `demo` command is the specification's hero script, executed end to end:
- * create a mandate with private limits, fund it, let an authorized agent spend
- * within the rules, watch an out-of-bounds action be refused, revoke, reclaim
- * the remainder, and publish a selective disclosure.
+ * NOT THE PRODUCT PATH. `selftest` is a developer harness: it runs the compiled
+ * Compact circuits in-process against an in-memory ledger, with no wallet, no
+ * network, no zero-knowledge proof and no funds. Every rule assertion in
+ * `mandate.compact` is live — a refusal here is a genuine unsatisfiable
+ * constraint, not a UI check — but nothing it does is an authorization, because
+ * an authorization is a verified proof on Midnight Preprod and this produces
+ * none.
  *
- * Every step runs the compiled Compact circuits. The refusals are real
- * unsatisfiable-constraint failures, not UI checks.
+ * The product is the web app: connect Lace, prove in the wallet, submit to
+ * Preprod. See the README. This exists to make the circuit logic inspectable
+ * from a terminal, and it is deliberately not reachable from the app.
  */
 
 import { formatToken, randomHex32 } from '../lib/encoding';
@@ -57,8 +61,16 @@ function keygen(): void {
   );
 }
 
-async function demo(): Promise<void> {
+async function selftest(): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
+
+  console.log(
+    c.yellow(
+      '\n  In-process circuit self-test. No wallet, no network, no proof, no funds.\n' +
+        '  Nothing here authorizes anything — the product path is the web app on\n' +
+        '  Midnight Preprod, where the wallet generates a proof for every action.\n',
+    ),
+  );
 
   // The recipients the mandate will be allowed (and not allowed) to pay.
   const SUPPLIER = 'a'.repeat(64);
@@ -212,16 +224,24 @@ async function demo(): Promise<void> {
   console.log();
 }
 
-const command = process.argv[2] ?? 'demo';
+const command = process.argv[2] ?? 'selftest';
 
 switch (command) {
   case 'keygen':
     keygen();
     break;
+  case 'selftest':
+    await selftest();
+    break;
   case 'demo':
-    await demo();
+    console.error(
+      'There is no demo mode. `demo` was an in-process simulation and has been renamed to\n' +
+        '`selftest` so it cannot be mistaken for the product. Run `npm run agent -- selftest`\n' +
+        'for the circuit harness, or `npm run dev` for the real app on Midnight Preprod.',
+    );
+    process.exit(1);
     break;
   default:
-    console.error(`Unknown command "${command}". Try: keygen | demo`);
+    console.error(`Unknown command "${command}". Try: keygen | selftest`);
     process.exit(1);
 }

@@ -1643,9 +1643,18 @@ textarea {
   font-size: 14px;
 }
 
-.gate-demo {
-  margin-top: 20px;
-  text-align: center;
+.gate-reqs ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.gate-reqs li::marker {
+  color: var(--violet);
 }
 
 input[type='password'] {
@@ -1678,17 +1687,3 @@ input[type='password']:focus {
   font-size: 13px;
 }
 
-.demo-ribbon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 10px 20px;
-  background: linear-gradient(90deg, rgba(251, 191, 36, 0.16), rgba(251, 191, 36, 0.08));
-  border-bottom: 1px solid rgba(251, 191, 36, 0.3);
-  color: var(--amber);
-  font-size: 13px;
-  font-weight: 550;
-  text-align: center;
-}

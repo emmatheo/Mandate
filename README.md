@@ -87,6 +87,37 @@ That second lock is what makes "only the wallet that deposited can withdraw" a p
 
 `fundMandate` is creator-only for a related reason: a stranger topping up the escrow would silently widen how much the agent can actually move. That is the creator's decision to make.
 
+## Where authorization actually happens
+
+```
+  BROWSER (private)                     MIDNIGHT PREPROD (public)
+  ─────────────────                     ─────────────────────────
+  rules, salt, secrets
+  encrypted at rest
+        │
+        │ witness: localRules / localSalt
+        │          localAgentSecretKey / localCreatorSecretKey
+        ▼
+  Lace proving provider ── proof ──▶  executeAction
+        │                              · reopens the commitment
+        │                              · checks agent identity
+        │                              · checks every private rule
+        │                              · pins the claimed time to block time
+        │                              · sendUnshielded → recipient
+        └── signs + submits ──────────▶ tx
+```
+
+The private half never crosses that line. What crosses is a proof and the values
+the contract deliberately publishes: the commitment, the agent public key, the
+amounts, the recipient, the rolling-window bookkeeping.
+
+There is no other way to move escrowed funds. `executeAction` is the only
+circuit that calls `sendUnshielded` to a caller-supplied address, it takes the
+rules from witnesses and re-derives the commitment in-circuit, and an action
+that violates any rule makes the circuit unsatisfiable — so no proof exists, and
+no valid transaction can be constructed. The app has no bypass, no admin path
+and no simulated mode: `lib/architecture.test.ts` asserts that structurally.
+
 ## Try it
 
 ### Run it against Midnight Preprod
@@ -118,6 +149,8 @@ npm run dev                    # landing page at :3000, app at /app
 
 Open `/app`, enter a private-state password (16+ characters — it encrypts your mandate rules and cannot be recovered), and connect Lace.
 
+Without all three — a Lace wallet on Preprod, a deployed registry, and local private state — the app does not open. There is no offline mode, no simulated mode and no way past the connect screen. That is the point: everything Mandate does is a Compact proof, so a session without the means to produce one has nothing to offer.
+
 ### Verify it end to end
 
 Six steps. Each one is a real transaction on Preprod.
@@ -133,15 +166,17 @@ Six steps. Each one is a real transaction on Preprod.
 
 The custody claim to check at step 6: the funds go back to the wallet that funded the mandate at step 1, and there is no field anywhere to send them elsewhere.
 
-### Locally, without a wallet
+### Inspecting the circuits without a wallet
 
 ```bash
 npm install
-npm test                  # 53 tests against the real compiled circuits
-npm run agent -- demo     # the whole lifecycle, end to end, in the terminal
+npm test                     # 58 tests against the real compiled circuits
+npm run agent -- selftest    # the circuit logic, in-process, in the terminal
 ```
 
-The app also has a **demo mode**, reachable from the connect screen behind an explicit confirmation. It runs the same compiled circuits against an in-memory ledger with no wallet and no chain, and is labelled as such everywhere it is visible. It exists to show the authorization logic without a funded wallet — it is never the default and nothing in it settles anywhere.
+Both are **developer harnesses, not the product**. They run the compiled circuits in-process against an in-memory ledger — every rule assertion is live, so a refusal is a genuine unsatisfiable constraint — but there is no wallet, no network, no proof and no funds. Nothing they do is an *authorization*, because on Midnight an authorization is a verified proof against committed private rules.
+
+The app imports neither of them. `lib/architecture.test.ts` fails the build if anything under `app/` ever does.
 
 ### Deploy to Vercel
 
@@ -173,10 +208,14 @@ This compiles the contract, publishes the generated TypeScript module to `contra
 contract/src/mandate.compact   the contract — the whole product is here
 contract/artifacts/            generated TypeScript (committed)
 public/zk/                     proving + verifier keys, ZKIR (committed)
-lib/                           domain model, rule engine, witnesses, network client
-lib/mandate.test.ts            53 tests against the real circuits
-lib/simulator.ts               in-process execution of the compiled circuits
-agent/                         the agent, its executors, and the demo CLI
+lib/client.ts                  the only path to the chain: providers, circuit calls
+lib/private-state.ts           witnesses — where private rules enter a proof
+lib/                           domain model, rule engine, network config
+lib/mandate.test.ts            circuit behaviour against the real circuits
+lib/architecture.test.ts       structural guards: no path authorizes without a proof
+lib/simulator.ts               in-process circuit harness — tests only, never the app
+agent/                         the agent, its executors, and the selftest CLI
+app/session.ts                 the single session path; every action is a proven tx
 app/page.tsx                   landing page (static, no wallet or WebAssembly)
 app/app/dashboard.tsx          the dashboard
 ```
@@ -188,13 +227,14 @@ Being precise about this matters more than sounding finished.
 **Real:**
 - The Compact contract compiles and every circuit is genuine. The proving keys in this repository were produced by `compactc`, not stubbed.
 - All authorization logic, escrow accounting, revocation, withdrawal and selective disclosure are enforced by circuit constraints. Nothing about verification or money movement is mocked.
-- 53 tests execute the compiled circuits in-process against real ledger state, including adversarial custody cases: an attacker holding the creator's secret still cannot redirect a withdrawal, the agent has no path to the escrow outside a valid authorization, and value is conserved across deposit, spend and reclaim. The dashboard executes the same circuits in the browser.
-- A click-through audit drives every button and error path in a real browser: input validation, both refusal types, top-up, revoke, reclaim, all three disclosure buttons, and the agent being blocked after revocation.
-- The dashboard renders only real state. There is no seeded mandate, no sample balance and no placeholder activity anywhere in the app: with nothing created, every panel shows an empty state.
+- **There is exactly one path through the app, and it goes through Midnight.** Every operation the dashboard offers is a Compact circuit call, proven inside the wallet and submitted to Preprod. There is no simulated mode, no offline mode and no local approval that stands in for a proof. Without Midnight private state and Compact authorization proofs, Mandate cannot authorize spends.
+- 58 tests execute the compiled circuits in-process against real ledger state, including adversarial custody cases: an attacker holding the creator's secret still cannot redirect a withdrawal, the agent has no path to the escrow outside a valid authorization, and value is conserved across deposit, spend and reclaim. Five of them are structural guards that fail if the app ever gains a path around the proof.
+- The dashboard renders only real state, read from the indexer. There is no seeded mandate, no sample balance and no placeholder activity anywhere in the app: with nothing created, every panel shows an empty state.
 
 **Not yet exercised:**
-- The Preprod path — wallet connection, transaction balancing, submission, indexer reads, and the deploy script — is written against the current `midnight-js` and DApp-connector APIs but has **not** been executed against a live network. The build environment had no route to Preprod (every endpoint blocked at the egress proxy) and no browser for the Lace extension, so the six-step verification above is the step that closes this gap.
+- The Preprod path — wallet connection, proving in Lace, transaction balancing, submission, indexer reads, and the deploy script — is written against the current `midnight-js` and DApp-connector APIs but has **not** been executed against a live network. The build environment had no route to Preprod (every endpoint blocked at the egress proxy) and no browser for the Lace extension, so the six-step verification above is the step that closes this gap.
 - No registry has been deployed, so there is no contract address to publish yet.
+- **The browser click-through audit no longer runs here.** It used to drive the whole lifecycle through an in-process simulator; removing that simulator from the app removed the audit's ability to run without a wallet. That was the right trade — an audit that exercises a path the product does not have is worth less than not having the path — but it means the in-browser evidence now comes from your Preprod run, not from this repository.
 
 ## Scope
 

@@ -3,32 +3,34 @@
 /**
  * The application session.
  *
- * Mandate runs against Midnight Preprod. That is the default and the only mode
- * in which funds actually move: a mandate is created by a transaction, the
- * escrow holds real tNIGHT, an agent releases funds by submitting a proof, and
- * the creator reclaims what is left. Every one of those is a signed transaction
- * through the connected wallet.
+ * Mandate is a Midnight application, and this module is where that is enforced
+ * rather than merely claimed. There is exactly one path through it:
  *
- * A `demo` mode exists alongside it, running the same compiled circuits against
- * an in-memory ledger with no wallet. It is opt-in, never the default, and it is
- * labelled everywhere it is visible. It is there so the authorization logic can
- * be shown without a funded wallet — not as a substitute for the chain.
+ *   1. a Lace wallet connects to Midnight Preprod,
+ *   2. the mandate rules and secrets are written to encrypted local private
+ *      state, where only the wallet's prover can read them,
+ *   3. every state change is a Compact circuit call submitted as a transaction,
+ *      proven inside the wallet against those witnesses.
+ *
+ * There is no second path. No simulator, no in-memory ledger, no local
+ * "approval" that stands in for a proof. If the wallet, the network, the
+ * registry or the private state is missing, every operation here fails loudly
+ * and nothing is authorized.
  *
  * The private half of a mandate — the rules, the salt, the creator and agent
- * secrets — never leaves the browser in either mode. On the chain path it is
- * held by the private-state provider, encrypted at rest under a password the
- * user supplies, and read only by the wallet's prover.
+ * secrets — never leaves the browser. It is held by the private-state provider,
+ * encrypted at rest under a password the user supplies, and read only by the
+ * wallet's prover during proof generation.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
-import { MandateAgent } from '../agent/agent';
-import { SimulatedExecutor } from '../agent/simulated-executor';
 import { formatToken, randomHex32 } from '../lib/encoding';
 import { explainError } from '../lib/errors';
 import {
   deriveAgentPublicKey,
   deriveCommitment,
+  preCheck,
   toContractRules,
   toRecordView,
   validateSpec,
@@ -41,7 +43,6 @@ import {
   type WalletBalances,
 } from '../lib/network';
 import { emptyPrivateState, type MandatePrivateState } from '../lib/private-state';
-import { MandateSimulator } from '../lib/simulator';
 import type {
   ActivityEntry,
   MandateRecordView,
@@ -55,7 +56,6 @@ import {
   connectWallet,
   createMandateOnChain,
   createProviders,
-  deployMandateRegistry,
   discloseFieldOnChain,
   discloseTotalSpendRespectedOnChain,
   executeActionOnChain,
@@ -68,11 +68,10 @@ import {
   type WalletConnection,
 } from '../lib/client';
 
-/** Network id used by the opt-in demo mode, which touches no chain. */
-export const DEMO_NETWORK_ID = 'undeployed';
-
-export type Mode = 'chain' | 'demo';
 export type ChainStatus = 'disconnected' | 'connecting' | 'ready' | 'error';
+
+/** A registry the wallet is attached to. Every circuit call goes through one. */
+type Registry = Awaited<ReturnType<typeof connectMandateRegistry>>;
 
 export interface DisclosureView {
   mandateId: string;
@@ -106,9 +105,26 @@ function entryId(): string {
   return `${Date.now().toString(36)}-${sequence.toString(36)}`;
 }
 
+/**
+ * Thrown when an operation is attempted without a live Midnight connection.
+ *
+ * This is a programming-error guard rather than a user-facing state: the
+ * dashboard is gated behind `status === 'ready'`. It exists so that a future
+ * refactor which lets a call slip past the gate fails immediately and visibly,
+ * instead of appearing to succeed.
+ */
+class NotConnectedError extends Error {
+  constructor(what: string) {
+    super(
+      `Not connected to Midnight ${REQUIRED_NETWORK_ID}: ${what}. ` +
+        'Mandate cannot authorize anything without a wallet, a deployed registry and ' +
+        'local private state — reconnect and try again.',
+    );
+    this.name = 'NotConnectedError';
+  }
+}
+
 export function useSession() {
-  // `chain` is the default. Demo mode is only ever entered deliberately.
-  const [mode, setModeState] = useState<Mode>('chain');
   const [status, setStatus] = useState<ChainStatus>('disconnected');
   const [error, setError] = useState<string | undefined>();
   const [busyLabel, setBusyLabel] = useState<string | undefined>();
@@ -124,64 +140,37 @@ export function useSession() {
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [disclosures, setDisclosures] = useState<DisclosureView[]>([]);
 
-  const providersRef = useRef<MandateProviders | null>(null);
-  const registryRef = useRef<Awaited<ReturnType<typeof connectMandateRegistry>> | null>(null);
+  const [providers, setProviders] = useState<MandateProviders | null>(null);
+  const [registry, setRegistry] = useState<Registry | null>(null);
 
-  // --- demo-mode state, unused on the chain path ---------------------------
-  const simRef = useRef<MandateSimulator | null>(null);
-  const executorRef = useRef<SimulatedExecutor | null>(null);
-  const demoPrivateRef = useRef<MandatePrivateState>(emptyPrivateState(DEMO_NETWORK_ID));
-  const [demoAddress, setDemoAddress] = useState('');
+  const networkId = REQUIRED_NETWORK_ID;
 
-  // Generated after mount: a value produced during render would differ between
-  // the prerendered HTML and the client, and React would flag a mismatch.
-  useEffect(() => {
-    setDemoAddress((current) => (current === '' ? randomHex32() : current));
-  }, []);
-
-  const networkId = mode === 'chain' ? REQUIRED_NETWORK_ID : DEMO_NETWORK_ID;
-
-  /** The address that funds mandates and receives every reclaim. */
-  const fundingAddress = mode === 'chain' ? (wallet?.unshieldedAddress ?? '') : demoAddress;
-
-  const setMode = useCallback((next: Mode) => {
-    setModeState(next);
-    setError(undefined);
-    setMandates([]);
-    setRecords({});
-    setActivity([]);
-    setDisclosures([]);
-  }, []);
+  /** The address that funds every mandate and receives every reclaim. */
+  const fundingAddress = wallet?.unshieldedAddress ?? '';
 
   const log = useCallback((entry: ActivityEntry) => {
     setActivity((previous) => [entry, ...previous]);
   }, []);
 
   // =========================================================================
-  // Chain wiring
+  // Reading public state
   // =========================================================================
 
-  const ensureDemo = useCallback(() => {
-    if (!simRef.current || !executorRef.current) {
-      const sim = new MandateSimulator(demoPrivateRef.current);
-      const executor = new SimulatedExecutor(sim, Math.floor(Date.now() / 1000));
-      simRef.current = sim;
-      executorRef.current = executor;
-    }
-    return { sim: simRef.current, executor: executorRef.current };
-  }, []);
-
-  /** Re-read every mandate's public record from wherever the truth lives. */
+  /**
+   * Re-read every mandate's public record from the indexer.
+   *
+   * The chain is the only source of escrow balances, spend totals and
+   * revocation status. Nothing here is remembered locally and trusted later.
+   */
   const refresh = useCallback(
-    async (list: StoredMandate[]) => {
+    async (list: StoredMandate[], activeProviders?: MandateProviders | null) => {
+      const p = activeProviders ?? providers;
+      if (!p || !registryAddress) throw new NotConnectedError('no registry to read from');
+
+      const state = await readRegistryLedger(p, registryAddress);
       const next: Record<string, MandateRecordView> = {};
 
-      if (mode === 'chain') {
-        const providers = providersRef.current;
-        const address = registryAddress;
-        if (!providers || !address) return;
-        const state = await readRegistryLedger(providers, address);
-        if (!state) return;
+      if (state) {
         for (const mandate of list) {
           const key = hexKey(mandate.id);
           if (state.mandates.member(key)) {
@@ -198,42 +187,27 @@ export function useSession() {
             revealsValue: entry.revealsValue,
           })),
         );
-      } else {
-        const sim = simRef.current;
-        if (!sim) return;
-        for (const mandate of list) {
-          const key = hexKey(mandate.id);
-          if (sim.ledger.mandates.member(key)) {
-            next[mandate.id] = toRecordView(mandate.id, sim.ledger.mandates.lookup(key));
-          }
-        }
-        setDisclosures(
-          [...sim.ledger.disclosureLog].map((entry) => ({
-            mandateId: Array.from(entry.mandateId, (b: number) =>
-              b.toString(16).padStart(2, '0'),
-            ).join(''),
-            kind: Number(entry.kind),
-            value: entry.value,
-            revealsValue: entry.revealsValue,
-          })),
-        );
       }
 
       setMandates(list);
       setRecords(next);
     },
-    [mode, registryAddress],
+    [providers, registryAddress],
   );
 
   const refreshBalances = useCallback(async () => {
-    if (mode !== 'chain' || !wallet) return;
+    if (!wallet) return;
     try {
       setBalances(await readBalances(wallet.api));
     } catch {
       // A balance read failing is not worth interrupting the user over; the
       // next action will surface any real problem.
     }
-  }, [mode, wallet]);
+  }, [wallet]);
+
+  // =========================================================================
+  // Connecting
+  // =========================================================================
 
   /**
    * Connect the wallet, build the providers, and attach to the registry.
@@ -248,41 +222,39 @@ export function useSession() {
       setError(undefined);
       setBusyLabel('Connecting wallet…');
       try {
+        const configured = configuredContractAddress();
+        if (!configured) {
+          throw new Error(
+            'No Mandate registry is configured for this deployment. Set ' +
+              'NEXT_PUBLIC_CONTRACT_ADDRESS to a registry address deployed with ' +
+              '`npm run contract:deploy`. Without it there is no contract to prove against, ' +
+              'and Mandate cannot authorize anything.',
+          );
+        }
+
         const connection = await connectWallet();
         setWallet(connection);
 
-        setBusyLabel('Preparing prover and providers…');
-        const providers = await createProviders(connection, {
+        setBusyLabel('Preparing the wallet prover and providers…');
+        const built = await createProviders(connection, {
           passwordProvider: () => password,
         });
-        providersRef.current = providers;
-
-        const configured = configuredContractAddress();
-        if (!configured) {
-          setStatus('error');
-          setError(
-            'No Mandate registry is configured. Set NEXT_PUBLIC_CONTRACT_ADDRESS to a deployed ' +
-              'registry address, or deploy one with `npm run contract:deploy`.',
-          );
-          setBusyLabel(undefined);
-          return {
-            ok: false,
-            message: 'No registry configured for this deployment.',
-          };
-        }
 
         setBusyLabel('Attaching to the Mandate registry…');
-        providers.privateStateProvider.setContractAddress(configured);
+        built.privateStateProvider.setContractAddress(configured);
         const existing =
-          (await providers.privateStateProvider.get(PRIVATE_STATE_ID)) ??
+          (await built.privateStateProvider.get(PRIVATE_STATE_ID)) ??
           emptyPrivateState(REQUIRED_NETWORK_ID);
 
-        const registry = await connectMandateRegistry(providers, configured, existing);
-        registryRef.current = registry;
+        const found = await connectMandateRegistry(built, configured, existing);
+
+        setProviders(built);
+        setRegistry(found);
         setRegistryAddress(configured);
 
         // Rebuild the mandate list from private state — that is the only place
-        // the rules exist, and without them nothing can be proven.
+        // the rules exist, and without them nothing can be proven. A mandate
+        // whose rules are lost is visible on chain but permanently unusable.
         const restored: StoredMandate[] = Object.entries(existing.mandates).map(
           ([id, { spec, secrets }]) => ({
             id,
@@ -298,7 +270,7 @@ export function useSession() {
         );
 
         setBalances(await readBalances(connection.api));
-        await refresh(restored);
+        await refresh(restored, built);
         setStatus('ready');
         setBusyLabel(undefined);
         return { ok: true };
@@ -314,14 +286,16 @@ export function useSession() {
   );
 
   /** Persist the private half of a mandate so it survives a reload. */
-  const persistPrivateState = useCallback(async (state: MandatePrivateState) => {
-    const providers = providersRef.current;
-    if (!providers) return;
-    await providers.privateStateProvider.set(PRIVATE_STATE_ID, state);
-  }, []);
+  const persistPrivateState = useCallback(
+    async (state: MandatePrivateState) => {
+      if (!providers) throw new NotConnectedError('no private-state provider');
+      await providers.privateStateProvider.set(PRIVATE_STATE_ID, state);
+    },
+    [providers],
+  );
 
   // =========================================================================
-  // Operations
+  // Operations — every one of these is a proven transaction
   // =========================================================================
 
   const createMandate = useCallback(
@@ -330,8 +304,11 @@ export function useSession() {
       agentSecretKey: string,
       deposit: bigint,
     ): Promise<CreateResult> => {
-      if (mode === 'chain' && status !== 'ready') {
-        return { ok: false, error: 'Connect a wallet before creating a mandate.' };
+      if (status !== 'ready' || !registry || !providers) {
+        return {
+          ok: false,
+          error: new NotConnectedError('cannot create a mandate').message,
+        };
       }
       if (fundingAddress === '') {
         return { ok: false, error: 'No funding address available yet. Reconnect and retry.' };
@@ -352,7 +329,7 @@ export function useSession() {
         if (problems.length > 0) return { ok: false, error: problems.join(' ') };
         if (deposit <= 0n) return { ok: false, error: 'The deposit must be greater than zero.' };
 
-        if (mode === 'chain' && balances) {
+        if (balances) {
           const funding = checkFunding(balances, deposit);
           if (funding.length > 0) return { ok: false, error: funding.join(' ') };
         }
@@ -366,48 +343,32 @@ export function useSession() {
 
       setBusyLabel('Proving and submitting…');
       try {
-        let txId: string | undefined;
+        // The witnesses read the rules during proving, so they must be in
+        // private state before the circuit runs.
+        const current =
+          (await providers.privateStateProvider.get(PRIVATE_STATE_ID)) ??
+          emptyPrivateState(REQUIRED_NETWORK_ID);
+        const staged: MandatePrivateState = {
+          ...current,
+          mandates: { ...current.mandates, [id]: { spec, secrets } },
+        };
+        await persistPrivateState(staged);
 
-        if (mode === 'chain') {
-          const registry = registryRef.current!;
-          const providers = providersRef.current!;
-
-          // The witnesses read the rules during proving, so they must be in
-          // private state before the circuit runs.
-          const current =
-            (await providers.privateStateProvider.get(PRIVATE_STATE_ID)) ??
-            emptyPrivateState(REQUIRED_NETWORK_ID);
-          const staged: MandatePrivateState = {
-            ...current,
-            mandates: { ...current.mandates, [id]: { spec, secrets } },
-          };
-          await persistPrivateState(staged);
-
-          try {
-            const outcome = await createMandateOnChain(
-              registry,
-              id,
-              fundingAddress,
-              deposit,
-              REQUIRED_NETWORK_ID,
-            );
-            txId = outcome.txId;
-          } catch (caught) {
-            // The transaction failed, so the mandate does not exist. Do not
-            // leave orphaned secrets behind implying that it does.
-            await persistPrivateState(current);
-            throw caught;
-          }
-        } else {
-          demoPrivateRef.current.mandates[id] = { spec, secrets };
-          const { sim } = ensureDemo();
-          sim.setBlockTime(Math.floor(Date.now() / 1000));
-          try {
-            sim.createMandate(id, fundingAddress, deposit);
-          } catch (caught) {
-            delete demoPrivateRef.current.mandates[id];
-            throw caught;
-          }
+        let txId: string;
+        try {
+          const outcome = await createMandateOnChain(
+            registry,
+            id,
+            fundingAddress,
+            deposit,
+            REQUIRED_NETWORK_ID,
+          );
+          txId = outcome.txId;
+        } catch (caught) {
+          // The transaction failed, so the mandate does not exist. Do not leave
+          // orphaned secrets behind implying that it does.
+          await persistPrivateState(current);
+          throw caught;
         }
 
         const mandate: StoredMandate = {
@@ -429,18 +390,28 @@ export function useSession() {
     },
     [
       balances,
-      ensureDemo,
       fundingAddress,
       mandates,
-      mode,
       networkId,
       persistPrivateState,
+      providers,
       refresh,
       refreshBalances,
+      registry,
       status,
     ],
   );
 
+  /**
+   * Run one agent action.
+   *
+   * The local rule check is advisory only. It exists so a doomed action fails
+   * with a named rule instead of costing the user a proof and a fee, and it can
+   * only ever *refuse* — it never authorizes anything. Authorization is the
+   * circuit's, and only the circuit's: `executeAction` re-checks every rule
+   * against the committed private rule set, and an action that violates one has
+   * no satisfying proof, so no valid transaction exists to submit.
+   */
   const runAgentAction = useCallback(
     async (
       mandateId: string,
@@ -459,11 +430,23 @@ export function useSession() {
         memo: memo || undefined,
       };
 
+      if (!registry) {
+        const entry: ActivityEntry = {
+          ...base,
+          outcome: 'rejected-locally',
+          message: new NotConnectedError('cannot submit an agent action').message,
+        };
+        log(entry);
+        return { ok: false, message: entry.message };
+      }
+
       if (!mandate || !record) {
         const entry: ActivityEntry = {
           ...base,
           outcome: 'rejected-locally',
-          message: 'That mandate is not available in this session.',
+          message:
+            'This wallet holds no private rules for that mandate, so it cannot prove anything ' +
+            'about it. Nothing was submitted.',
         };
         log(entry);
         return { ok: false, message: entry.message };
@@ -471,70 +454,54 @@ export function useSession() {
 
       setBusyLabel('Proving and submitting…');
       try {
-        if (mode === 'chain') {
-          const registry = registryRef.current!;
-          // The agent pre-checks locally so a doomed action fails with a named
-          // rule rather than a wasted proof; the circuit still has final say.
-          const { preCheck } = await import('../lib/mandate');
-          const now = Math.floor(Date.now() / 1000) - 30;
-          const check = preCheck(mandate.spec, record, { mandateId, recipient, amount }, now, REQUIRED_NETWORK_ID);
+        const now = Math.floor(Date.now() / 1000) - 30;
+        const check = preCheck(
+          mandate.spec,
+          record,
+          { mandateId, recipient, amount },
+          now,
+          REQUIRED_NETWORK_ID,
+        );
 
-          if (!check.authorized) {
-            const violation = check.violation!;
-            const entry: ActivityEntry = {
-              ...base,
-              outcome: 'rejected-locally',
-              violatedRule: violation.rule,
-              message: `${violation.label}: ${violation.detail ?? 'rule not satisfied'}`,
-            };
-            log(entry);
-            return {
-              ok: false,
-              message: entry.message,
-              preCheck: check,
-              violatedRule: violation.rule,
-            };
-          }
-
-          const outcome = await executeActionOnChain(
-            registry,
-            mandateId,
-            recipient,
-            amount,
-            now,
-            REQUIRED_NETWORK_ID,
-          );
+        if (!check.authorized) {
+          const violation = check.violation!;
           const entry: ActivityEntry = {
             ...base,
-            outcome: 'executed',
-            txId: outcome.txId,
-            message: `Released ${formatToken(amount)} on Midnight Preprod.`,
+            outcome: 'rejected-locally',
+            violatedRule: violation.rule,
+            message:
+              `${violation.label}: ${violation.detail ?? 'rule not satisfied'} ` +
+              '— refused before proving; no transaction was submitted.',
           };
           log(entry);
-          await refresh(mandates);
-          await refreshBalances();
-          return { ok: true, message: entry.message, preCheck: check, txId: outcome.txId };
+          return {
+            ok: false,
+            message: entry.message,
+            preCheck: check,
+            violatedRule: violation.rule,
+          };
         }
 
-        // Demo mode: the same circuits, no chain.
-        const { executor } = ensureDemo();
-        executor.advanceTo(Math.floor(Date.now() / 1000));
-        const agent = new MandateAgent({
-          executor,
-          mandates: { getSpec: (i) => demoPrivateRef.current.mandates[i]?.spec },
-          networkId: DEMO_NETWORK_ID,
-          timestampLagSeconds: 0,
-        });
-        const result = await agent.act({ mandateId, recipient, amount, memo: memo || undefined });
-        log(result.entry);
-        await refresh(mandates);
-        return {
-          ok: result.ok,
-          message: result.entry.message,
-          preCheck: result.preCheck,
-          violatedRule: result.entry.violatedRule,
+        const outcome = await executeActionOnChain(
+          registry,
+          mandateId,
+          recipient,
+          amount,
+          now,
+          REQUIRED_NETWORK_ID,
+        );
+        const entry: ActivityEntry = {
+          ...base,
+          outcome: 'executed',
+          txId: outcome.txId,
+          message: `Released ${formatToken(amount)} on Midnight Preprod. Transaction ${outcome.txId}`,
         };
+        log(entry);
+        await refresh(mandates);
+        await refreshBalances();
+        return { ok: true, message: entry.message, preCheck: check, txId: outcome.txId };
       } catch (caught) {
+        // The circuit or the network refused. Either way no funds moved.
         const friendly = explainError(caught);
         const entry: ActivityEntry = {
           ...base,
@@ -547,25 +514,22 @@ export function useSession() {
         setBusyLabel(undefined);
       }
     },
-    [ensureDemo, log, mandates, mode, records, refresh, refreshBalances],
+    [log, mandates, records, refresh, refreshBalances, registry],
   );
 
-  /** Wrap a creator-only chain call with consistent status and error handling. */
+  /** Wrap a creator-only circuit call with consistent status and error handling. */
   const creatorAction = useCallback(
     async (
       label: string,
-      onChain: () => Promise<{ txId: string }>,
-      onDemo: () => void,
-      success: (txId?: string) => string,
+      call: (registry: Registry) => Promise<{ txId: string }>,
+      success: (txId: string) => string,
     ): Promise<ActionResult> => {
+      if (!registry) {
+        return { ok: false, message: new NotConnectedError(label.toLowerCase()).message };
+      }
       setBusyLabel(label);
       try {
-        let txId: string | undefined;
-        if (mode === 'chain') {
-          txId = (await onChain()).txId;
-        } else {
-          onDemo();
-        }
+        const { txId } = await call(registry);
         await refresh(mandates);
         await refreshBalances();
         return { ok: true, message: success(txId), txId };
@@ -575,18 +539,19 @@ export function useSession() {
         setBusyLabel(undefined);
       }
     },
-    [mandates, mode, refresh, refreshBalances],
+    [mandates, refresh, refreshBalances, registry],
   );
 
   const revoke = useCallback(
     (mandateId: string) =>
       creatorAction(
         'Proving revocation…',
-        () => revokeMandateOnChain(registryRef.current!, mandateId),
-        () => ensureDemo().sim.revokeMandate(mandateId),
-        () => 'Mandate revoked. No further agent action can be authorized under it.',
+        (r) => revokeMandateOnChain(r, mandateId),
+        (txId) =>
+          `Mandate revoked on chain. No further agent action can be authorized under it. ` +
+          `Transaction ${txId}`,
       ),
-    [creatorAction, ensureDemo],
+    [creatorAction],
   );
 
   const withdraw = useCallback(
@@ -594,49 +559,41 @@ export function useSession() {
       const to = mandates.find((m) => m.id === mandateId)?.creatorAddress ?? '';
       return creatorAction(
         'Proving withdrawal…',
-        () => withdrawOnChain(registryRef.current!, mandateId),
-        () => {
-          ensureDemo().sim.withdraw(mandateId);
-        },
-        () => `Reclaimed to the funding address ${to.slice(0, 12)}…`,
+        (r) => withdrawOnChain(r, mandateId),
+        (txId) => `Reclaimed to the funding address ${to.slice(0, 12)}…. Transaction ${txId}`,
       );
     },
-    [creatorAction, ensureDemo, mandates],
+    [creatorAction, mandates],
   );
 
   const fund = useCallback(
     (mandateId: string, amount: bigint) =>
       creatorAction(
         'Proving deposit…',
-        () => fundMandateOnChain(registryRef.current!, mandateId, amount),
-        () => ensureDemo().sim.fundMandate(mandateId, amount),
-        () => `Added ${formatToken(amount)} to the escrow.`,
+        (r) => fundMandateOnChain(r, mandateId, amount),
+        (txId) => `Added ${formatToken(amount)} to the escrow. Transaction ${txId}`,
       ),
-    [creatorAction, ensureDemo],
+    [creatorAction],
   );
 
   const discloseTotalRespected = useCallback(
     (mandateId: string) =>
       creatorAction(
         'Proving disclosure…',
-        () => discloseTotalSpendRespectedOnChain(registryRef.current!, mandateId),
-        () => ensureDemo().sim.discloseTotalSpendRespected(mandateId),
+        (r) => discloseTotalSpendRespectedOnChain(r, mandateId),
         () => 'Published: the total spend limit was respected. The limit itself stays private.',
       ),
-    [creatorAction, ensureDemo],
+    [creatorAction],
   );
 
   const discloseField = useCallback(
     (mandateId: string, kind: bigint) =>
       creatorAction(
         'Proving disclosure…',
-        () => discloseFieldOnChain(registryRef.current!, mandateId, kind),
-        () => {
-          ensureDemo().sim.discloseField(mandateId, kind);
-        },
+        (r) => discloseFieldOnChain(r, mandateId, kind),
         () => 'Published one field. Every other rule stays hidden.',
       ),
-    [creatorAction, ensureDemo],
+    [creatorAction],
   );
 
   const totals = useMemo(() => {
@@ -649,8 +606,6 @@ export function useSession() {
   }, [records]);
 
   return {
-    mode,
-    setMode,
     status,
     error,
     busyLabel,

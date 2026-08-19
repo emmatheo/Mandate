@@ -1,13 +1,19 @@
 /**
- * A local, in-process execution of the Mandate contract.
+ * A local, in-process execution of the Mandate contract. TEST HARNESS ONLY.
  *
  * This runs the *real* compiled circuits against a real ledger state via
  * `@midnight-ntwrk/compact-runtime` — the same code path a node takes, minus
  * proof generation and consensus. Every assertion in `mandate.compact` is live
- * here, so it is the honest way to demonstrate that a rule violation is
- * genuinely unsatisfiable rather than merely refused by the UI.
+ * here, which makes it the honest way to show that a rule violation is
+ * genuinely unsatisfiable rather than merely refused by an interface.
  *
- * Used by the test-suite and by `npm run agent -- demo`.
+ * It is NOT an authorization path and must never become one. There is no proof
+ * here and no chain, so nothing it "executes" is authorized in the sense the
+ * product means: on Midnight, an authorization is a verified proof against
+ * committed private rules.
+ *
+ * Used by `lib/mandate.test.ts` and `npm run agent -- selftest`. Nothing under
+ * `app/` imports it, and nothing under `app/` should.
  */
 
 import {

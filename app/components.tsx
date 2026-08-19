@@ -118,6 +118,20 @@ function RuleRow({ check }: { check: RuleCheck }) {
   );
 }
 
+/**
+ * How an outcome is named.
+ *
+ * A refusal before proving and a refusal by the circuit are different events and
+ * must not read as the same one: the first is the agent's own check declining to
+ * spend a proof on a doomed action, the second is the chain rejecting it. Only
+ * the executed case means a proof verified and funds moved.
+ */
+export function outcomeLabel(outcome: ActivityEntry['outcome']): string {
+  if (outcome === 'executed') return 'Payment executed — proof verified on chain';
+  if (outcome === 'rejected-locally') return 'Refused before proving';
+  return 'Refused on chain';
+}
+
 /** One row of the agent activity feed. */
 export function FeedItem({ entry, label }: { entry: ActivityEntry; label: string }) {
   const executed = entry.outcome === 'executed';
@@ -128,7 +142,7 @@ export function FeedItem({ entry, label }: { entry: ActivityEntry; label: string
       </span>
       <div className="feed-main">
         <div className="feed-title">
-          <span>{executed ? 'Payment executed' : 'Payment refused'}</span>
+          <span>{outcomeLabel(entry.outcome)}</span>
           <span className="feed-time">{relativeTime(entry.at)}</span>
         </div>
         <div className="feed-meta">
